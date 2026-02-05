@@ -422,13 +422,278 @@ export default function ComprehensiveSettings({ onClose }: ComprehensiveSettings
     </div>
   );
 
+  const renderTerminalSettings = () => (
+    <div className="space-y-6">
+      <div>
+        <label className="block text-sm font-semibold text-white mb-2">Font Size: {settings.terminalFontSize}px</label>
+        <input
+          type="range"
+          min="10"
+          max="24"
+          value={settings.terminalFontSize}
+          onChange={(e) => updateSetting('terminalFontSize', parseInt(e.target.value))}
+          className="w-full"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-white mb-2">Cursor Style</label>
+        <select
+          value={settings.terminalCursorStyle}
+          onChange={(e) => updateSetting('terminalCursorStyle', e.target.value)}
+          className="w-full px-4 py-2 rounded-lg text-white outline-none"
+          style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}
+        >
+          <option value="block">Block</option>
+          <option value="underline">Underline</option>
+          <option value="bar">Bar</option>
+        </select>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Cursor Blinking</div>
+          <div className="text-xs text-[#718096]">Enable cursor blinking animation</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.terminalCursorBlinking}
+          onChange={(e) => updateSetting('terminalCursorBlinking', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-white mb-2">Scrollback Lines</label>
+        <input
+          type="number"
+          min="100"
+          max="10000"
+          step="100"
+          value={settings.terminalScrollback}
+          onChange={(e) => updateSetting('terminalScrollback', parseInt(e.target.value))}
+          className="w-full px-4 py-2 rounded-lg text-white outline-none"
+          style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}
+        />
+        <div className="text-xs text-[#718096] mt-1">Number of lines to keep in scrollback buffer</div>
+      </div>
+    </div>
+  );
+
+  const renderGitSettings = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Enable Git Integration</div>
+          <div className="text-xs text-[#718096]">Use Git features in the IDE</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.gitEnabled}
+          onChange={(e) => updateSetting('gitEnabled', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Auto Fetch</div>
+          <div className="text-xs text-[#718096]">Automatically fetch from remote</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.gitAutoFetch}
+          onChange={(e) => updateSetting('gitAutoFetch', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+
+      {settings.gitAutoFetch && (
+        <div>
+          <label className="block text-sm font-semibold text-white mb-2">Auto Fetch Interval (seconds)</label>
+          <input
+            type="number"
+            min="60"
+            max="600"
+            step="30"
+            value={settings.gitAutoFetchInterval}
+            onChange={(e) => updateSetting('gitAutoFetchInterval', parseInt(e.target.value))}
+            className="w-full px-4 py-2 rounded-lg text-white outline-none"
+            style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}
+          />
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Confirm Sync</div>
+          <div className="text-xs text-[#718096]">Ask before push/pull operations</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.gitConfirmSync}
+          onChange={(e) => updateSetting('gitConfirmSync', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+    </div>
+  );
+
+  const renderPerformanceSettings = () => (
+    <div className="space-y-6">
+      <div>
+        <label className="block text-sm font-semibold text-white mb-2">Max File Size (MB)</label>
+        <input
+          type="number"
+          min="1"
+          max="500"
+          value={settings.maxFileSize}
+          onChange={(e) => updateSetting('maxFileSize', parseInt(e.target.value))}
+          className="w-full px-4 py-2 rounded-lg text-white outline-none"
+          style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}
+        />
+        <div className="text-xs text-[#718096] mt-1">Maximum file size to open in editor</div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-white mb-2">File Watcher Exclude Patterns</label>
+        <textarea
+          value={settings.fileWatcherExclude.join('\n')}
+          onChange={(e) => updateSetting('fileWatcherExclude', e.target.value.split('\n').filter(Boolean))}
+          className="w-full px-4 py-2 rounded-lg text-white outline-none font-mono text-sm"
+          style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}
+          rows={4}
+          placeholder="**/node_modules/**&#10;**/dist/**"
+        />
+        <div className="text-xs text-[#718096] mt-1">Patterns to exclude from file watching (one per line)</div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-white mb-2">Search Exclude Patterns</label>
+        <textarea
+          value={settings.searchExclude.join('\n')}
+          onChange={(e) => updateSetting('searchExclude', e.target.value.split('\n').filter(Boolean))}
+          className="w-full px-4 py-2 rounded-lg text-white outline-none font-mono text-sm"
+          style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}
+          rows={4}
+          placeholder="**/node_modules/**&#10;**/dist/**"
+        />
+        <div className="text-xs text-[#718096] mt-1">Patterns to exclude from search (one per line)</div>
+      </div>
+    </div>
+  );
+
+  const renderPrivacySettings = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Telemetry</div>
+          <div className="text-xs text-[#718096]">Send anonymous usage data</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.telemetry}
+          onChange={(e) => updateSetting('telemetry', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Crash Reporting</div>
+          <div className="text-xs text-[#718096]">Send crash reports to developers</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.crashReporting}
+          onChange={(e) => updateSetting('crashReporting', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+
+      <div className="p-4 rounded-lg" style={{ background: 'rgba(102, 126, 234, 0.1)', border: '1px solid rgba(102, 126, 234, 0.3)' }}>
+        <div className="text-sm text-white font-semibold mb-2">Privacy Notice</div>
+        <div className="text-xs text-[#a0aec0] leading-relaxed">
+          NAME STUDIO AI respects your privacy. We only collect anonymous usage statistics to improve the product. 
+          No personal data, code, or project information is ever transmitted. You can disable all data collection at any time.
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderNotificationsSettings = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Enable Notifications</div>
+          <div className="text-xs text-[#718096]">Show system notifications</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.notificationsEnabled}
+          onChange={(e) => updateSetting('notificationsEnabled', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-white">Sound Effects</div>
+          <div className="text-xs text-[#718096]">Play sounds for notifications</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.soundEnabled}
+          onChange={(e) => updateSetting('soundEnabled', e.target.checked)}
+          className="w-5 h-5 rounded"
+        />
+      </div>
+    </div>
+  );
+
+  const renderShortcutsSettings = () => (
+    <div className="space-y-4">
+      <div className="p-4 rounded-lg" style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}>
+        <div className="text-sm font-semibold text-white mb-3">Editor Shortcuts</div>
+        <div className="space-y-2 text-xs">
+          <div className="flex justify-between"><span className="text-[#a0aec0]">Save File</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+S</kbd></div>
+          <div className="flex justify-between"><span className="text-[#a0aec0]">Open File</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+O</kbd></div>
+          <div className="flex justify-between"><span className="text-[#a0aec0]">Find</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+F</kbd></div>
+          <div className="flex justify-between"><span className="text-[#a0aec0]">Replace</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+H</kbd></div>
+        </div>
+      </div>
+
+      <div className="p-4 rounded-lg" style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}>
+        <div className="text-sm font-semibold text-white mb-3">AI Assistant Shortcuts</div>
+        <div className="space-y-2 text-xs">
+          <div className="flex justify-between"><span className="text-[#a0aec0]">Toggle AI Panel</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+L</kbd></div>
+          <div className="flex justify-between"><span className="text-[#a0aec0]">Send Message</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+Enter</kbd></div>
+        </div>
+      </div>
+
+      <div className="p-4 rounded-lg" style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}>
+        <div className="text-sm font-semibold text-white mb-3">Terminal Shortcuts</div>
+        <div className="space-y-2 text-xs">
+          <div className="flex justify-between"><span className="text-[#a0aec0]">New Terminal</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+Shift+`</kbd></div>
+          <div className="flex justify-between"><span className="text-[#a0aec0]">Clear Terminal</span><kbd className="px-2 py-1 bg-[#667eea] text-white rounded">Ctrl+K</kbd></div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeTab) {
       case 'general': return renderGeneralSettings();
       case 'appearance': return renderAppearanceSettings();
       case 'editor': return renderEditorSettings();
       case 'ai': return renderAISettings();
-      default: return <div className="text-center text-[#a0aec0] py-12">Settings for {activeTab} coming soon...</div>;
+      case 'terminal': return renderTerminalSettings();
+      case 'git': return renderGitSettings();
+      case 'performance': return renderPerformanceSettings();
+      case 'privacy': return renderPrivacySettings();
+      case 'notifications': return renderNotificationsSettings();
+      case 'shortcuts': return renderShortcutsSettings();
+      default: return <div className="text-center text-[#a0aec0] py-12">Unknown settings category</div>;
     }
   };
 

@@ -5,10 +5,12 @@ import MenuBar from './components/MenuBar'
 import ResizableLayout from './components/ResizableLayout'
 import VSCodeStatusBar from './components/VSCodeStatusBar'
 import CommandPalette from './components/CommandPalette'
+import ComprehensiveSettings from './components/ComprehensiveSettings'
 import { useLayoutStore } from './store/useLayoutStore'
 
 function AppContent() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const { togglePanel, toggleExplorer, toggleSidebar, setActiveView } = useLayoutStore()
   
   console.log('App rendered, showCommandPalette:', showCommandPalette)
@@ -67,6 +69,16 @@ function AppContent() {
         e.preventDefault()
         toggleSidebar()
       }
+      // Ctrl+L - Toggle AI Panel
+      if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault()
+        toggleSidebar()
+      }
+      // Ctrl+, - Settings
+      if (e.ctrlKey && e.key === ',') {
+        e.preventDefault()
+        setShowSettings(true)
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -79,7 +91,9 @@ function AppContent() {
         onToggleTerminal={togglePanel}
         onToggleAI={toggleSidebar}
       />
-      <MenuBar onAction={async (action) => {
+      <MenuBar 
+        onOpenSettings={() => setShowSettings(true)}
+        onAction={async (action) => {
         const { useStore: store } = await import('./store/useStore');
         const state = store.getState();
         
@@ -173,6 +187,8 @@ function AppContent() {
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
       />
+
+      {showSettings && <ComprehensiveSettings onClose={() => setShowSettings(false)} />}
     </div>
   )
 }

@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Send, Trash2, Sparkles, Code, MessageCircle, ListChecks, Bug, Wand2, FileText, TestTube, FolderSearch, Undo, Play, CheckCircle, AlertTriangle, History, Clock, Settings, Plus, X } from 'lucide-react';
+import { Send, Trash2, Sparkles, Code, MessageCircle, ListChecks, Bug, Wand2, FileText, TestTube, FolderSearch, Undo, Play, CheckCircle, AlertTriangle, History, Clock, Plus, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { aiService, AIMode, AgentResponse } from '../services/aiService';
 import DiffViewer from './DiffViewer';
 import { chatHistoryService, ChatSession } from '../services/chatHistoryService';
-import ComprehensiveSettings from './ComprehensiveSettings';
 
 interface CodeChange {
   file: string;
@@ -40,7 +39,6 @@ export default function AIPanel() {
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [chatTabs, setChatTabs] = useState<Array<{ id: string; title: string; messages: AgentMessage[] }>>([
     { id: 'default', title: 'Chat 1', messages: [] }
   ]);
@@ -297,15 +295,6 @@ export default function AIPanel() {
           </div>
           
           <div className="flex items-center gap-2">
-            {/* Settings Button */}
-            <button
-              onClick={() => setShowSettings(true)}
-              className="p-1.5 hover:bg-white/10 rounded-lg transition-all duration-200"
-              title="Settings"
-            >
-              <Settings size={16} className="text-[#a0aec0] hover:text-white" />
-            </button>
-            
             {/* Chat History Button */}
             <div className="relative">
               <button
@@ -870,9 +859,6 @@ export default function AIPanel() {
           )}
         </div>
       </div>
-
-      {/* Settings Modal */}
-      {showSettings && <ComprehensiveSettings onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

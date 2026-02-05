@@ -4,7 +4,7 @@ import {
   VscDiscard, VscRedo, VscCopy, VscSearch, VscReplace,
   VscChevronRight, VscCheck, VscClose, VscFolder, VscRefresh,
   VscDebugStart, VscDebugAlt, VscTerminal, VscSplitHorizontal,
-  VscClearAll, VscQuestion, VscBook, VscHome
+  VscClearAll, VscQuestion, VscBook, VscHome, VscSettingsGear
 } from 'react-icons/vsc';
 
 interface MenuItem {
@@ -19,9 +19,10 @@ interface MenuItem {
 
 interface MenuBarProps {
   onAction?: (action: string) => void;
+  onOpenSettings?: () => void;
 }
 
-export default function MenuBar({ onAction }: MenuBarProps) {
+export default function MenuBar({ onAction, onOpenSettings }: MenuBarProps) {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -343,28 +344,39 @@ export default function MenuBar({ onAction }: MenuBarProps) {
   };
 
   return (
-    <div ref={menuRef} className="h-9 bg-[#323233] border-b border-[#3e3e3e] flex items-center px-2 select-none">
-      {Object.keys(menus).map((menuName) => (
-        <div key={menuName} className="relative">
-          <button
-            className={`px-3 py-1 text-sm ${
-              activeMenu === menuName
-                ? 'bg-[#2a2d2e] text-white'
-                : 'text-[#cccccc] hover:bg-[#2a2d2e]'
-            }`}
-            onClick={() => handleMenuClick(menuName)}
-          >
-            {menuName}
-          </button>
+    <div ref={menuRef} className="h-9 bg-[#323233] border-b border-[#3e3e3e] flex items-center justify-between px-2 select-none">
+      <div className="flex items-center">
+        {Object.keys(menus).map((menuName) => (
+          <div key={menuName} className="relative">
+            <button
+              className={`px-3 py-1 text-sm ${
+                activeMenu === menuName
+                  ? 'bg-[#2a2d2e] text-white'
+                  : 'text-[#cccccc] hover:bg-[#2a2d2e]'
+              }`}
+              onClick={() => handleMenuClick(menuName)}
+            >
+              {menuName}
+            </button>
 
-          {/* Dropdown Menu */}
-          {activeMenu === menuName && (
-            <div className="absolute top-full left-0 mt-0.5 bg-[#3c3c3c] border border-[#454545] rounded shadow-lg py-1 min-w-[280px] z-50">
-              {menus[menuName].map((item, index) => renderMenuItem(item, index, menuName))}
-            </div>
-          )}
-        </div>
-      ))}
+            {/* Dropdown Menu */}
+            {activeMenu === menuName && (
+              <div className="absolute top-full left-0 mt-0.5 bg-[#3c3c3c] border border-[#454545] rounded shadow-lg py-1 min-w-[280px] z-50">
+                {menus[menuName].map((item, index) => renderMenuItem(item, index, menuName))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Settings Button */}
+      <button
+        onClick={() => onOpenSettings?.()}
+        className="p-1.5 hover:bg-[#2a2d2e] rounded transition-colors"
+        title="Settings (Ctrl+,)"
+      >
+        <VscSettingsGear size={16} className="text-[#cccccc]" />
+      </button>
     </div>
   );
 }
