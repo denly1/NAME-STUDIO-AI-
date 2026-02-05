@@ -170,90 +170,24 @@ export default function AIPanel() {
     try {
       aiService.setMode(mode);
       
-      // Build agent context
-      const agentContext = {
-        task: userMessage,
-        current_file: currentFile || undefined,
-        file_content: currentFile ? openFiles.find(f => f.path === currentFile)?.content : undefined,
-        open_files: openFiles.map(f => ({ path: f.path, name: f.name, language: f.language })),
-        project_tree: [],
-        dependencies: [],
-        errors: []
+      // Build context for AI
+      const context = {
+        files: openFiles.map(f => ({ path: f.path, name: f.name, language: f.language })),
+        currentFile: currentFile || undefined
       };
       
-      let fullResponse = '';
+      // Use simple chat method for normal conversation
+      const response = await aiService.chat(userMessage, context);
       
-      // Use streaming for real-time updates
-      await aiService.chatStream(
-        userMessage,
-        mode === 'code' ? agentContext : undefined,
-        (chunk) => {
-          fullResponse += chunk;
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[assistantMessageIndex] = {
-              role: 'assistant',
-              content: fullResponse
-            };
-            return newMessages;
-          });
-        }
-      );
-      
-      // Try to parse JSON response for agent mode
-      let codeChanges: CodeChange[] = [];
-      if (mode === 'code') {
-        try {
-          // Extract JSON from response (might be wrapped in markdown)
-          const jsonMatch = fullResponse.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const agentResponse = JSON.parse(jsonMatch[0]);
-            
-            // Convert patches to code changes
-            if (agentResponse.patches && agentResponse.patches.length > 0) {
-              codeChanges = agentResponse.patches.map((patch: any) => ({
-                file: patch.file,
-                content: patch.diff,
-                applied: false
-              }));
-            }
-            
-            // Add new files
-            if (agentResponse.new_files && agentResponse.new_files.length > 0) {
-              codeChanges.push(...agentResponse.new_files.map((nf: any) => ({
-                file: nf.path,
-                content: nf.content,
-                applied: false
-              })));
-            }
-            
-            if (codeChanges.length > 0) {
-              setPendingChanges(codeChanges);
-              setMessages(prev => {
-                const newMessages = [...prev];
-                newMessages[assistantMessageIndex] = {
-                  ...newMessages[assistantMessageIndex],
-                  changes: codeChanges
-                };
-                return newMessages;
-              });
-            }
-          }
-        } catch (e) {
-          console.log('Response is not JSON, treating as plain text');
-        }
-      }
-      
-      // Response already set via streaming, just ensure changes are attached
-      if (codeChanges.length > 0) {
-        setMessages(prev => {
-          const newMessages = [...prev];
-          if (newMessages[assistantMessageIndex]) {
-            newMessages[assistantMessageIndex].changes = codeChanges;
-          }
-          return newMessages;
-        });
-      }
+      // Update the assistant message with the response
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[assistantMessageIndex] = {
+          role: 'assistant',
+          content: response
+        };
+        return newMessages;
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to get response';
       
