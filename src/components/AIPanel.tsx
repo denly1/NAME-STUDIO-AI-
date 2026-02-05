@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Send, Trash2, Sparkles, Code, MessageCircle, ListChecks, Bug, Wand2, FileText, TestTube, FolderSearch, Undo, Play, CheckCircle, AlertTriangle, History, Clock, Plus, X } from 'lucide-react';
+import { Send, Trash2, Sparkles, Code, MessageCircle, ListChecks, Bug, Wand2, FileText, TestTube, FolderSearch, Undo, Play, CheckCircle, AlertTriangle, History, Clock, Plus, X, Zap } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { aiService, AIMode, AgentResponse } from '../services/aiService';
 import DiffViewer from './DiffViewer';
+import AdvancedDiffViewer from './AdvancedDiffViewer';
 import { chatHistoryService, ChatSession } from '../services/chatHistoryService';
+import { agentHarness, AgentTask, AgentStep, AgentPlan } from '../services/agentHarness';
+import { FileDiff } from '../services/agentTools';
 
 interface CodeChange {
   file: string;
   content: string;
   applied: boolean;
-}
-
-interface AgentStep {
-  description: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
-  files_affected?: string[];
 }
 
 interface AgentMessage {
