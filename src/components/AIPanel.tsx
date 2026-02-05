@@ -503,13 +503,13 @@ export default function AIPanel() {
                   <div className="space-y-1">
                     {msg.steps.map((step, i) => (
                       <div key={i} className="flex items-center gap-2 text-xs">
-                        {step.status === 'completed' && <CheckCircle size={12} className="text-green-400" />}
-                        {step.status === 'in_progress' && <Play size={12} className="text-blue-400" />}
-                        {step.status === 'failed' && <AlertTriangle size={12} className="text-red-400" />}
-                        {step.status === 'pending' && <div className="w-3 h-3 rounded-full border border-[#4a5568]" />}
+                        {step.type === 'result' && <CheckCircle size={12} className="text-green-400" />}
+                        {step.type === 'tool_use' && <Play size={12} className="text-blue-400" />}
+                        {step.type === 'error' && <AlertTriangle size={12} className="text-red-400" />}
+                        {step.type === 'thinking' && <div className="w-3 h-3 rounded-full border border-[#4a5568]" />}
                         <span className="text-[#a0aec0]">{step.description}</span>
-                        {step.files_affected && step.files_affected.length > 0 && (
-                          <span className="text-[#718096] text-[10px]">({step.files_affected.length} files)</span>
+                        {step.tool && (
+                          <span className="text-[#718096] text-[10px]">({step.tool})</span>
                         )}
                       </div>
                     ))}
