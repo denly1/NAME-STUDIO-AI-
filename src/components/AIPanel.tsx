@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Send, Trash2, Sparkles, Code, MessageCircle, ListChecks, Bug, Wand2, FileText, TestTube, FolderSearch, Undo, Play, CheckCircle, AlertTriangle, History, Clock, Plus, X, Zap } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { aiService, AIMode, AgentResponse } from '../services/aiService';
@@ -40,6 +40,14 @@ export default function AIPanel() {
     { id: 'default', title: 'Chat 1', messages: [] }
   ]);
   const [activeTabId, setActiveTabId] = useState('default');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Helper to refocus input after button clicks
+  const refocusInput = () => {
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  };
 
   // Load chat history for current project
   useEffect(() => {
@@ -229,7 +237,10 @@ export default function AIPanel() {
             {/* Chat History Button */}
             <div className="relative">
               <button
-                onClick={() => setShowChatHistory(!showChatHistory)}
+                onClick={() => {
+                  setShowChatHistory(!showChatHistory);
+                  refocusInput();
+                }}
                 className="p-1.5 hover:bg-white/10 rounded-lg transition-all duration-200 relative"
                 title="Show Chat History"
               >
@@ -343,7 +354,10 @@ export default function AIPanel() {
             </div>
             
             <button
-              onClick={() => setMessages([])}
+              onClick={() => {
+                setMessages([]);
+                refocusInput();
+              }}
               className="p-1.5 hover:bg-white/10 rounded-lg transition-all duration-200"
               title="Clear Chat"
             >
@@ -607,7 +621,10 @@ export default function AIPanel() {
           {/* Quick Actions Dropdown */}
           <div className="relative">
             <button
-              onClick={() => setShowQuickActions(!showQuickActions)}
+              onClick={() => {
+                setShowQuickActions(!showQuickActions);
+                refocusInput();
+              }}
               className="px-3 py-3 text-white rounded-xl transition-all duration-300 hover:scale-105"
               style={{ background: 'rgba(102, 126, 234, 0.2)', border: '2px solid #667eea' }}
               title="Quick Actions"
@@ -759,6 +776,7 @@ export default function AIPanel() {
           </div>
 
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
