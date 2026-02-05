@@ -1,0 +1,70 @@
+appId: com.namestudio.ai
+productName: NAME STUDIO AI
+copyright: Copyright © 2026 NAME STUDIO
+directories:
+  output: release
+  buildResources: build
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  artifactName: NAME-STUDIO-AI-Setup-${version}.${ext}
+  
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: NAME STUDIO AI
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeader: assets/installer-header.bmp
+  installerSidebar: assets/installer-sidebar.bmp
+  installerHeaderIcon: assets/icon.ico
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  menuCategory: true
+  displayLanguageSelector: false
+  installerLanguages:
+    - en_US
+    - ru_RU
+  license: LICENSE.txt
+  warningsAsErrors: false
+  perMachine: false
+  allowElevation: true
+  
+  # Custom NSIS script for beautiful installer
+  include: installer.nsh
+  
+  # Installer appearance
+  artifactName: NAME-STUDIO-AI-Setup-${version}.${ext}
+  
+files:
+  - "**/*"
+  - "!**/*.map"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/*.d.ts"
+  - "!**/node_modules/.bin"
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+  - "!.editorconfig"
+  - "!**/._*"
+  - "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}"
+  - "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}"
+  - "!**/{appveyor.yml,.travis.yml,circle.yml}"
+  - "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+
+extraResources:
+  - from: "assets"
+    to: "assets"
+    filter:
+      - "**/*"
+
+publish:
+  provider: github
+  owner: denly1
+  repo: NAME-STUDIO-AI-
