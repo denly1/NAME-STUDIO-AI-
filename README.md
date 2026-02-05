@@ -1,4 +1,4 @@
-# NeuroDesk IDE
+# NAME STUDIO IDE
 
 Полноценная IDE с AI-ассистентом, как Cursor AI или Windsurf AI.
 
