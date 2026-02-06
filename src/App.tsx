@@ -7,8 +7,10 @@ import VSCodeStatusBar from './components/VSCodeStatusBar'
 import CommandPalette from './components/CommandPalette'
 import ComprehensiveSettings from './components/ComprehensiveSettings'
 import QuickOpen from './components/QuickOpen'
+import ZenMode from './components/ZenMode'
 import { useLayoutStore } from './store/useLayoutStore'
 import './services/workbench/layoutActions'
+import './services/editorActions'
 import { keybindingService } from './services/workbench/keybindingService'
 import { executeAction } from './services/workbench/actionRegistry'
 
@@ -16,6 +18,7 @@ function AppContent() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showQuickOpen, setShowQuickOpen] = useState(false)
+  const [showZenMode, setShowZenMode] = useState(false)
   const { togglePanel, toggleExplorer, toggleSidebar, setActiveView } = useLayoutStore()
   
   console.log('App rendered, showCommandPalette:', showCommandPalette)
@@ -34,11 +37,16 @@ function AppContent() {
     const handleOpenQuickOpen = () => setShowQuickOpen(true)
     window.addEventListener('openQuickOpen', handleOpenQuickOpen)
 
+    // Обработчик для Zen Mode
+    const handleToggleZenMode = () => setShowZenMode(!showZenMode)
+    window.addEventListener('toggleZenMode', handleToggleZenMode)
+
     return () => {
       window.removeEventListener('openSettings', handleOpenSettings)
       window.removeEventListener('openQuickOpen', handleOpenQuickOpen)
+      window.removeEventListener('toggleZenMode', handleToggleZenMode)
     }
-  }, [])
+  }, [showZenMode])
 
   return (
     <div className="h-screen w-screen flex flex-col text-[#e2e8f0]" style={{ background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)' }}>
@@ -92,6 +100,11 @@ function AppContent() {
       <QuickOpen 
         isOpen={showQuickOpen}
         onClose={() => setShowQuickOpen(false)}
+      />
+
+      <ZenMode 
+        isActive={showZenMode}
+        onClose={() => setShowZenMode(false)}
       />
 
       {showSettings && <ComprehensiveSettings onClose={() => setShowSettings(false)} />}
