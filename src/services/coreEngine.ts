@@ -61,9 +61,10 @@ export class CoreEngine {
 
   // Initialize from environment
   private initializeFromEnv() {
-    const envKey = import.meta.env.VITE_OPENROUTER_API_KEY;
-    if (envKey) {
-      this.setApiKey('openrouter', envKey);
+    // API key will be set manually or loaded from localStorage
+    const savedKey = localStorage.getItem('ai_api_key');
+    if (savedKey) {
+      this.setApiKey('openrouter', savedKey);
     }
   }
 
@@ -296,7 +297,9 @@ export class CoreEngine {
     // Limit cache size
     if (this.responseCache.size > 100) {
       const firstKey = this.responseCache.keys().next().value;
-      this.responseCache.delete(firstKey);
+      if (firstKey) {
+        this.responseCache.delete(firstKey);
+      }
     }
 
     this.saveCache();
