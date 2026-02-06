@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { useAIStore } from '../store/useAIStore';
 
 // API Configuration - artemox.com Gateway (Works worldwide including Russia/Asia)
@@ -17,15 +16,35 @@ import { useAIStore } from '../store/useAIStore';
 // - text-embedding-ada-002, text-embedding-3-small/large (Embeddings)
 // - whisper-1, tts-1, tts-1-hd (Audio)
 
-const openai = new OpenAI({
-  apiKey: 'sk-SDaGmRLAuD9ZleyqqgPawQ',
-  baseURL: 'https://api.artemox.com/v1',
-  dangerouslyAllowBrowser: true,
-  defaultHeaders: {
-    'HTTP-Referer': 'https://namestudio.ai',
-    'X-Title': 'NAME STUDIO AI'
+const API_KEY = 'sk-SDaGmRLAuD9ZleyqqgPawQ';
+const BASE_URL = 'https://api.artemox.com/v1';
+
+// Direct fetch to avoid CORS issues in Electron
+async function callAPI(messages: any[], temperature: number = 0.15, maxTokens: number = 8000, stream: boolean = false) {
+  const model = useAIStore.getState().selectedModel;
+  
+  const response = await fetch(`${BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${API_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      stream
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`API Error: ${response.status} - ${error}`);
   }
-});
+
+  return response;
+}
 
 export type AIMode = 'code' | 'ask' | 'plan';
 
@@ -117,18 +136,13 @@ export class AIService {
     });
 
     try {
-      const response = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...this.conversationHistory
-        ],
-        temperature: 0.15,
-        max_tokens: 8000,
-        stream: false
-      });
+      const response = await callAPI([
+        { role: 'system', content: systemPrompt },
+        ...this.conversationHistory
+      ], 0.15, 8000, false);
 
-      const assistantMessage = response.choices[0].message.content || '';
+      const data = await response.json();
+      const assistantMessage = data.choices[0].message.content || '';
       
       this.conversationHistory.push({
         role: 'assistant',
@@ -169,33 +183,24 @@ export class AIService {
     });
 
     try {
-      const stream = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...this.conversationHistory
-        ],
-        temperature: 0.15,
-        max_tokens: 8000,
-        stream: true
-      });
+      // Use non-streaming for now to avoid CORS issues
+      const response = await callAPI([
+        { role: 'system', content: systemPrompt },
+        ...this.conversationHistory
+      ], 0.15, 8000, false);
 
-      let fullResponse = '';
-      
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content || '';
-        if (content) {
-          fullResponse += content;
-          if (onChunk) {
-            onChunk(content);
-          }
-        }
-      }
+      const data = await response.json();
+      const fullResponse = data.choices[0].message.content || '';
       
       this.conversationHistory.push({
         role: 'assistant',
         content: fullResponse
       });
+
+      // Call onChunk with full response if provided
+      if (onChunk) {
+        onChunk(fullResponse);
+      }
 
       return fullResponse;
     } catch (error: any) {
@@ -234,16 +239,13 @@ Respond with a JSON array of file edits in this format:
 ]`;
 
     try {
-      const response = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: 'You are a code editing AI. Respond only with valid JSON.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3
-      });
+      const response = await callAPI([
+        { role: 'system', content: 'You are a code editing AI. Respond only with valid JSON.' },
+        { role: 'user', content: prompt }
+      ], 0.3);
 
-      const content = response.choices[0].message.content || '[]';
+      const data = await response.json();
+      const content = data.choices[0].message.content || '[]';
       const edits = JSON.parse(content);
       return edits;
     } catch (error: any) {
@@ -391,17 +393,13 @@ Respond with valid JSON only in this format:
 }`;
 
     try {
-      const response = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Analyze project at: ${projectPath}` }
-        ],
-        temperature: 0.2,
-        max_tokens: 8000
-      });
+      const response = await callAPI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Analyze project at: ${projectPath}` }
+      ], 0.2, 8000);
 
-      const content = response.choices[0].message.content || '{}';
+      const data = await response.json();
+      const content = data.choices[0].message.content || '{}';
       const analysis = JSON.parse(content);
       return analysis;
     } catch (error) {
@@ -431,17 +429,13 @@ Requirements:
 Return only the test code, no explanations.`;
 
     try {
-      const response = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Generate tests for:\n\nFile: ${filePath}\n\n${fileContent}` }
-        ],
-        temperature: 0.2,
-        max_tokens: 8000
-      });
+      const response = await callAPI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Generate tests for:\n\nFile: ${filePath}\n\n${fileContent}` }
+      ], 0.2, 8000);
 
-      return response.choices[0].message.content || '';
+      const data = await response.json();
+      return data.choices[0].message.content || '';
     } catch (error) {
       console.error('Test generation error:', error);
       throw new Error('Failed to generate tests');
@@ -459,17 +453,13 @@ Focus on:
 - Suggestions for improvement`;
 
     try {
-      const response = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `${context ? `Context: ${context}\n\n` : ''}Explain this code:\n\n${code}` }
-        ],
-        temperature: 0.3,
-        max_tokens: 4000
-      });
+      const response = await callAPI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `${context ? `Context: ${context}\n\n` : ''}Explain this code:\n\n${code}` }
+      ], 0.3, 4000);
 
-      return response.choices[0].message.content || '';
+      const data = await response.json();
+      return data.choices[0].message.content || '';
     } catch (error) {
       console.error('Code explanation error:', error);
       throw new Error('Failed to explain code');
@@ -487,17 +477,13 @@ Focus on:
     };
 
     try {
-      const response = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: JSON.stringify(context, null, 2) }
-        ],
-        temperature: 0.15,
-        max_tokens: 8000
-      });
+      const response = await callAPI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: JSON.stringify(context, null, 2) }
+      ], 0.15, 8000);
 
-      const content = response.choices[0].message.content || '{}';
+      const data = await response.json();
+      const content = data.choices[0].message.content || '{}';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         return JSON.parse(jsonMatch[0]);
@@ -520,17 +506,13 @@ Focus on:
     };
 
     try {
-      const response = await openai.chat.completions.create({
-        model: getCurrentModel(),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: JSON.stringify(context, null, 2) }
-        ],
-        temperature: 0.15,
-        max_tokens: 8000
-      });
+      const response = await callAPI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: JSON.stringify(context, null, 2) }
+      ], 0.15, 8000);
 
-      const content = response.choices[0].message.content || '{}';
+      const data = await response.json();
+      const content = data.choices[0].message.content || '{}';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         return JSON.parse(jsonMatch[0]);
