@@ -8,7 +8,7 @@ interface LayoutState {
   showExplorer: boolean;
   showSidebar: boolean;
   showPanel: boolean;
-  activeView: 'explorer' | 'search' | 'git' | 'extensions' | 'ai';
+  activeView: 'explorer' | 'search' | 'git' | 'extensions' | 'codemaps' | 'ai';
   activePanelTab: 'terminal' | 'problems' | 'output' | 'debug';
   
   setExplorerWidth: (width: number) => void;

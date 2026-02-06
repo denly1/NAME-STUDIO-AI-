@@ -6,6 +6,8 @@ import EditorPanel from './EditorPanel';
 import PanelContainer from './PanelContainer';
 import AIPanel from './AIPanel';
 import EnhancedGitPanel from './EnhancedGitPanel';
+import CodemapsPanel from './CodemapsPanel';
+import ExtensionsPanel from './ExtensionsPanel';
 
 export default function ResizableLayout() {
   const { showExplorer, showPanel, showSidebar, activeView } = useLayoutStore();
@@ -26,11 +28,8 @@ export default function ResizableLayout() {
                 </div>
               )}
               {activeView === 'git' && <EnhancedGitPanel />}
-              {activeView === 'extensions' && (
-                <div className="h-full bg-[#252526] p-4 text-[#858585]">
-                  <p className="text-sm">Extensions (Coming Soon)</p>
-                </div>
-              )}
+              {activeView === 'extensions' && <ExtensionsPanel />}
+              {activeView === 'codemaps' && <CodemapsPanel />}
               {activeView === 'ai' && (
                 <div className="h-full bg-[#252526] p-4 text-[#858585]">
                   <p className="text-sm">AI View (Coming Soon)</p>

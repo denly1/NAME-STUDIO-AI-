@@ -8,6 +8,7 @@ import {
   SiJavascript, SiTypescript, SiPython, SiHtml5, SiCss3, 
   SiJson, SiMarkdown, SiReact 
 } from 'react-icons/si';
+import FileContextMenu from './FileContextMenu';
 
 export default function ExplorerView() {
   const { workspaceRoot, fileTree, setFileTree, setWorkspaceRoot, openFiles, setCurrentFile, closeFile } = useStore();
@@ -97,6 +98,93 @@ export default function ExplorerView() {
   const handleContextMenu = (e: React.MouseEvent, node: FileNode) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, node });
+  };
+
+  const handleContextMenuAction = async (action: string, path: string) => {
+    const node = contextMenu?.node;
+    if (!node) return;
+
+    try {
+      switch (action) {
+        case 'preview':
+          // Open file in preview mode
+          await handleFileClick(node);
+          break;
+        
+        case 'openToSide':
+          // Open file in split view (future feature)
+          await handleFileClick(node);
+          break;
+        
+        case 'reveal':
+          // Reveal in file explorer - using revealInExplorer method
+          try {
+            await window.electronAPI.fs.revealInExplorer(path);
+          } catch (error) {
+            console.error('Reveal in explorer not available:', error);
+          }
+          break;
+        
+        case 'terminal':
+          // Open terminal at file/folder location
+          const terminalPath = node.type === 'directory' ? path : path.substring(0, path.lastIndexOf('\\'));
+          addTerminal(terminalPath);
+          break;
+        
+        case 'cut':
+          // Copy path to clipboard for cut operation
+          await navigator.clipboard.writeText(path);
+          break;
+        
+        case 'copy':
+          // Copy file/folder (future feature)
+          await navigator.clipboard.writeText(path);
+          break;
+        
+        case 'copyPath':
+          // Copy absolute path
+          await navigator.clipboard.writeText(path);
+          break;
+        
+        case 'copyRelativePath':
+          // Copy relative path
+          if (workspaceRoot) {
+            const relativePath = path.replace(workspaceRoot + '\\', '');
+            await navigator.clipboard.writeText(relativePath);
+          }
+          break;
+        
+        case 'rename':
+          // Rename file/folder
+          const newName = prompt('Enter new name:', node.name);
+          if (newName && newName !== node.name) {
+            const newPath = path.substring(0, path.lastIndexOf('\\')) + '\\' + newName;
+            await window.electronAPI.fs.rename(path, newPath);
+            await handleRefresh();
+          }
+          break;
+        
+        case 'delete':
+          // Delete file/folder
+          if (confirm(`Are you sure you want to delete "${node.name}"?`)) {
+            await window.electronAPI.fs.deleteFile(path);
+            await handleRefresh();
+            // Close file if it's open
+            if (openFiles.find(f => f.path === path)) {
+              closeFile(path);
+            }
+          }
+          break;
+        
+        case 'openWithTextEditor':
+        case 'openWithDefaultApp':
+          // Open with default application - open in editor for now
+          await handleFileClick(node);
+          break;
+      }
+    } catch (error) {
+      alert(`Failed to ${action}: ${error}`);
+    }
   };
 
   const getFileIcon = (filename: string) => {
@@ -332,111 +420,14 @@ export default function ExplorerView() {
 
       {/* Context Menu */}
       {contextMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-[9998]"
-            onClick={() => setContextMenu(null)}
-            style={{ background: 'transparent' }}
-          />
-          <div
-            className="fixed bg-[#3c3c3c] border border-[#454545] rounded shadow-lg py-1 z-50 min-w-[180px]"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-          >
-            <button 
-              onClick={async () => {
-                const fileName = prompt('Enter file name:');
-                if (fileName && workspaceRoot) {
-                  try {
-                    const basePath = contextMenu.node.type === 'directory' ? contextMenu.node.path : contextMenu.node.path.substring(0, contextMenu.node.path.lastIndexOf('\\'));
-                    const filePath = `${basePath}\\${fileName}`;
-                    await window.electronAPI.fs.createFile(filePath);
-                    const tree = await window.electronAPI.fs.readDir(workspaceRoot);
-                    setFileTree(tree);
-                    setContextMenu(null);
-                  } catch (error) {
-                    alert('Failed to create file: ' + error);
-                  }
-                }
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-[#cccccc] hover:bg-[#2a2d2e]"
-            >
-              New File
-            </button>
-            <button 
-              onClick={async () => {
-                const folderName = prompt('Enter folder name:');
-                if (folderName && workspaceRoot) {
-                  try {
-                    const basePath = contextMenu.node.type === 'directory' ? contextMenu.node.path : contextMenu.node.path.substring(0, contextMenu.node.path.lastIndexOf('\\'));
-                    const folderPath = `${basePath}\\${folderName}`;
-                    await window.electronAPI.fs.createDir(folderPath);
-                    const tree = await window.electronAPI.fs.readDir(workspaceRoot);
-                    setFileTree(tree);
-                    setContextMenu(null);
-                  } catch (error) {
-                    alert('Failed to create folder: ' + error);
-                  }
-                }
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-[#cccccc] hover:bg-[#2a2d2e]"
-            >
-              New Folder
-            </button>
-            <div className="h-px bg-[#454545] my-1" />
-            <button 
-              onClick={async () => {
-                const newName = prompt('Enter new name:', contextMenu.node.name);
-                if (newName && newName !== contextMenu.node.name && workspaceRoot) {
-                  try {
-                    const basePath = contextMenu.node.path.substring(0, contextMenu.node.path.lastIndexOf('\\'));
-                    const newPath = `${basePath}\\${newName}`;
-                    await window.electronAPI.fs.rename(contextMenu.node.path, newPath);
-                    const tree = await window.electronAPI.fs.readDir(workspaceRoot);
-                    setFileTree(tree);
-                    setContextMenu(null);
-                  } catch (error) {
-                    alert('Failed to rename: ' + error);
-                  }
-                }
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-[#cccccc] hover:bg-[#2a2d2e]"
-            >
-              Rename
-            </button>
-            <button 
-              onClick={async () => {
-                if (confirm(`Delete ${contextMenu.node.name}?`) && workspaceRoot) {
-                  await window.electronAPI.fs.deleteFile(contextMenu.node.path);
-                  const tree = await window.electronAPI.fs.readDir(workspaceRoot);
-                  setFileTree(tree);
-                  setContextMenu(null);
-                }
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-[#cccccc] hover:bg-[#2a2d2e]"
-            >
-              Delete
-            </button>
-            <div className="h-px bg-[#454545] my-1" />
-            <button 
-              onClick={() => {
-                navigator.clipboard.writeText(contextMenu.node.path);
-                setContextMenu(null);
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-[#cccccc] hover:bg-[#2a2d2e]"
-            >
-              Copy Path
-            </button>
-            <button 
-              onClick={async () => {
-                await window.electronAPI.fs.revealInExplorer(contextMenu.node.path);
-                setContextMenu(null);
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-[#cccccc] hover:bg-[#2a2d2e]"
-            >
-              Reveal in File Explorer
-            </button>
-          </div>
-        </>
+        <FileContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          filePath={contextMenu.node.path}
+          isDirectory={contextMenu.node.type === 'directory'}
+          onClose={() => setContextMenu(null)}
+          onAction={handleContextMenuAction}
+        />
       )}
     </div>
   );

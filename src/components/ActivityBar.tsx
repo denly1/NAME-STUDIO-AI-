@@ -1,4 +1,4 @@
-import { Files, Search, GitBranch, Package, Sparkles } from 'lucide-react';
+import { Files, Search, GitBranch, Package, Sparkles, Map } from 'lucide-react';
 import { useLayoutStore } from '../store/useLayoutStore';
 
 export default function ActivityBar() {
@@ -8,6 +8,7 @@ export default function ActivityBar() {
     { id: 'explorer' as const, icon: Files, label: 'Explorer', shortcut: 'Ctrl+Shift+E' },
     { id: 'search' as const, icon: Search, label: 'Search', shortcut: 'Ctrl+Shift+F' },
     { id: 'git' as const, icon: GitBranch, label: 'Source Control', shortcut: 'Ctrl+Shift+G' },
+    { id: 'codemaps' as const, icon: Map, label: 'Codemaps', shortcut: 'Ctrl+:' },
     { id: 'extensions' as const, icon: Package, label: 'Extensions', shortcut: 'Ctrl+Shift+X' },
     { id: 'ai' as const, icon: Sparkles, label: 'AI Assistant', shortcut: 'Ctrl+Shift+A' },
   ];

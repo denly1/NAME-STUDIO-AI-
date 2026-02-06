@@ -102,6 +102,18 @@ function AppContent() {
           state.setWorkspaceRoot(folderPath);
           const tree = await window.electronAPI.fs.readDir(folderPath);
           state.setFileTree(tree);
+          
+          // Auto-update terminal path when opening folder
+          const { useTerminalStore } = await import('./store/useTerminalStore');
+          const terminalState = useTerminalStore.getState();
+          
+          // Close all existing terminals and create new one with project path
+          terminalState.terminals.forEach(terminal => {
+            terminalState.removeTerminal(terminal.id);
+          });
+          
+          // Create new terminal with project path
+          terminalState.addTerminal(folderPath);
         } else if (action.startsWith('openFile:')) {
           const filePath = action.replace('openFile:', '');
           const content = await window.electronAPI.fs.readFile(filePath);
