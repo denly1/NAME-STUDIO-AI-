@@ -15,6 +15,8 @@ export default function ExplorerView() {
   const { terminals, addTerminal } = useTerminalStore();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null);
+  const [openEditorsCollapsed, setOpenEditorsCollapsed] = useState(false);
+  const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
 
   useEffect(() => {
     if (workspaceRoot) {
@@ -283,12 +285,20 @@ export default function ExplorerView() {
       <div className="flex-1 overflow-y-auto">
         {/* Open Editors Section */}
         {openFiles.length > 0 && (
-          <div className="border-b border-[#3e3e3e]">
-            <div className="h-9 flex items-center justify-between px-3 text-xs font-bold uppercase tracking-wide" style={{ background: 'rgba(26, 26, 46, 0.6)', backdropFilter: 'blur(10px)' }}>
-              <span style={{ background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Open Editors</span>
+          <div className="border-b-2 border-[#4a5568]">
+            <div 
+              className="h-9 flex items-center justify-between px-3 text-xs font-bold uppercase tracking-wide cursor-pointer hover:bg-white/5" 
+              style={{ background: 'rgba(26, 26, 46, 0.6)', backdropFilter: 'blur(10px)' }}
+              onClick={() => setOpenEditorsCollapsed(!openEditorsCollapsed)}
+            >
               <div className="flex items-center gap-2">
+                {openEditorsCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                <span style={{ background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Open Editors</span>
+              </div>
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <button
-                  onClick={async () => {
+                  onClick={async (e) => {
+                    e.stopPropagation();
                     if (!workspaceRoot) {
                       alert('Please open a folder first');
                       return;
@@ -296,7 +306,7 @@ export default function ExplorerView() {
                     const fileName = prompt('Enter file name:');
                     if (fileName) {
                       try {
-                        const filePath = `${workspaceRoot}\\${fileName}`;
+                        const filePath = `${workspaceRoot}/${fileName}`;
                         await window.electronAPI.fs.createFile(filePath);
                         const tree = await window.electronAPI.fs.readDir(workspaceRoot);
                         setFileTree(tree);
@@ -320,7 +330,8 @@ export default function ExplorerView() {
                   <FilePlus size={12} className="text-[#a0aec0] hover:text-white transition-colors" />
                 </button>
                 <button
-                  onClick={async () => {
+                  onClick={async (e) => {
+                    e.stopPropagation();
                     if (!workspaceRoot) {
                       alert('Please open a folder first');
                       return;
@@ -328,7 +339,7 @@ export default function ExplorerView() {
                     const folderName = prompt('Enter folder name:');
                     if (folderName) {
                       try {
-                        const folderPath = `${workspaceRoot}\\${folderName}`;
+                        const folderPath = `${workspaceRoot}/${folderName}`;
                         await window.electronAPI.fs.createDir(folderPath);
                         const tree = await window.electronAPI.fs.readDir(workspaceRoot);
                         setFileTree(tree);
@@ -342,11 +353,7 @@ export default function ExplorerView() {
                 >
                   <FolderPlus size={12} className="text-[#a0aec0] hover:text-white transition-colors" />
                 </button>
-                <button
-                  onClick={handleRefresh}
-                  className="p-1.5 hover:bg-white/10 rounded-lg transition-all duration-200"
-                  title="Refresh Explorer"
-                >
+                <button onClick={(e) => { e.stopPropagation(); handleRefresh(); }} className="p-1 hover:bg-white/10 rounded transition-colors" title="Refresh">
                   <RefreshCw size={12} className="text-[#a0aec0] hover:text-white transition-colors" />
                 </button>
                 <span className="text-[#718096] ml-2 font-semibold">{openFiles.length}</span>
@@ -391,25 +398,23 @@ export default function ExplorerView() {
             </button>
           </div>
         ) : (
-          <div>
+          <div className="border-b-2 border-[#4a5568]">
             {/* Workspace Folder Header */}
             <div 
-              className="flex items-center gap-1 px-2 py-1.5 hover:bg-white/10 cursor-pointer text-sm select-none border-b border-[#4a5568] transition-all duration-200 rounded-md"
-              onClick={() => {
-                const rootExpanded = expandedFolders.has(workspaceRoot);
-                if (rootExpanded) {
-                  setExpandedFolders(new Set());
-                } else {
-                  setExpandedFolders(new Set([workspaceRoot]));
-                }
-              }}
+              className="h-9 flex items-center justify-between px-3 text-xs font-bold uppercase tracking-wide cursor-pointer hover:bg-white/5"
+              style={{ background: 'rgba(26, 26, 46, 0.6)', backdropFilter: 'blur(10px)' }}
+              onClick={() => setFileTreeCollapsed(!fileTreeCollapsed)}
             >
-              {expandedFolders.has(workspaceRoot) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              <VscFolderOpened size={16} className="text-[#dcb67a]" />
-              <span className="flex-1 font-bold text-[#e2e8f0] truncate">{workspaceRoot.split(/[\\/]/).pop()}</span>
+              <div className="flex items-center gap-2">
+                {fileTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                <VscFolderOpened size={16} className="text-[#dcb67a]" />
+                <span style={{ background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  {workspaceRoot.split(/[/\\]/).pop()}
+                </span>
+              </div>
             </div>
-            {/* File Tree */}
-            {expandedFolders.has(workspaceRoot) && (
+            
+            {!fileTreeCollapsed && (
               <div className="py-1">
                 {renderTree(fileTree)}
               </div>

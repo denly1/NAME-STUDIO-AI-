@@ -169,18 +169,31 @@ registerAction({
     const folderPath = await window.electronAPI.fs.openFolder();
     if (folderPath) {
       const { useStore } = await import('../../store/useStore');
-      const state = useStore.getState();
-      state.setWorkspaceRoot(folderPath);
-      const tree = await window.electronAPI.fs.readDir(folderPath);
-      state.setFileTree(tree);
-      
-      // Auto-update terminal
       const { useTerminalStore } = await import('../../store/useTerminalStore');
-      const terminalState = useTerminalStore.getState();
-      terminalState.terminals.forEach(terminal => {
-        terminalState.removeTerminal(terminal.id);
-      });
-      terminalState.addTerminal(folderPath);
+      const store = useStore.getState();
+      const terminalStore = useTerminalStore.getState();
+      
+      store.setWorkspaceRoot(folderPath);
+      
+      // Load folder contents
+      const contents = await window.electronAPI.fs.readDir(folderPath);
+      store.setFileTree(contents);
+      
+      // Clear all old terminals
+      const oldTerminals = [...terminalStore.terminals];
+      for (const terminal of oldTerminals) {
+        terminalStore.removeTerminal(terminal.id);
+      }
+      
+      // Create new terminal with project path
+      terminalStore.addTerminal(folderPath);
+      
+      // Get the newly created terminal ID
+      const newTerminal = terminalStore.terminals[terminalStore.terminals.length - 1];
+      if (newTerminal) {
+        await window.electronAPI.terminal.create(newTerminal.id);
+        terminalStore.updateTerminalCwd(newTerminal.id, folderPath);
+      }
     }
   }
 });

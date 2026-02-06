@@ -1,8 +1,15 @@
 import OpenAI from 'openai';
 
+// API Configuration
+// Current: artemox.com API with $1 budget
+// Alternative: all-team-models API (https://all-team-models.com)
+// Budget: $1 - Monitor usage at https://artemox.com/ui
+// Username: z2076wfx296ge02ijsxytwj@artemox.com
+// Password: y2n6GiUlDMmZb3HwT5fFKq9z
+
 const openai = new OpenAI({
-  apiKey: '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',
-  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: 'sk-SDaGmRLAuD9ZleyqqgPawQ',
+  baseURL: 'https://api.artemox.com/v1',
   dangerouslyAllowBrowser: true,
   defaultHeaders: {
     'HTTP-Referer': 'https://namestudio.ai',
