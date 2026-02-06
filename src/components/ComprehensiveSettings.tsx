@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, Settings, Palette, Code, Zap, Globe, Shield, Bell, Keyboard, Database, Terminal as TerminalIcon, FileText, Search, GitBranch, Package } from 'lucide-react';
+import { useAIStore, AI_MODELS, AIModelKey } from '../store/useAIStore';
 
 interface ComprehensiveSettingsProps {
   onClose: () => void;
@@ -7,6 +8,7 @@ interface ComprehensiveSettingsProps {
 
 export default function ComprehensiveSettings({ onClose }: ComprehensiveSettingsProps) {
   const [activeTab, setActiveTab] = useState('general');
+  const { selectedModel, setSelectedModel } = useAIStore();
   const [settings, setSettings] = useState({
     // General
     language: 'en',
@@ -340,17 +342,55 @@ export default function ComprehensiveSettings({ onClose }: ComprehensiveSettings
       </div>
 
       <div>
-        <label className="block text-sm font-semibold text-white mb-2">Model</label>
+        <label className="block text-sm font-semibold text-white mb-2">
+          AI Model (artemox.com)
+        </label>
         <select
-          value={settings.aiModel}
-          onChange={(e) => updateSetting('aiModel', e.target.value)}
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value as AIModelKey)}
           className="w-full px-4 py-2 rounded-lg text-white outline-none"
           style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568' }}
         >
-          <option value="qwen/qwen-2.5-coder-32b-instruct">Qwen 2.5 Coder 32B</option>
-          <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-          <option value="openai/gpt-4">GPT-4</option>
+          <optgroup label="🚀 GPT-4 Series (Recommended)">
+            <option value="gpt-4o">GPT-4o - Best quality/performance balance</option>
+            <option value="gpt-4o-mini">GPT-4o Mini - Faster, cheaper</option>
+            <option value="gpt-4">GPT-4 - Original GPT-4</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo - Faster GPT-4</option>
+          </optgroup>
+          
+          <optgroup label="⚡ GPT-3.5 Series">
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo - Fast and efficient</option>
+            <option value="gpt-3.5-turbo-16k">GPT-3.5 Turbo 16K - Extended context</option>
+          </optgroup>
+          
+          <optgroup label="🌟 GPT-5 Series (Latest)">
+            <option value="gpt-5">GPT-5 - Latest generation</option>
+            <option value="gpt-5.1">GPT-5.1 - Enhanced GPT-5</option>
+            <option value="gpt-5.2">GPT-5.2 - Most advanced</option>
+            <option value="gpt-5-mini">GPT-5 Mini - Compact version</option>
+            <option value="gpt-5-nano">GPT-5 Nano - Ultra-fast</option>
+            <option value="gpt-5-chat-latest">GPT-5 Chat Latest - Latest chat model</option>
+          </optgroup>
+          
+          <optgroup label="💻 Code-Specialized Models">
+            <option value="gpt-5.1-codex">GPT-5.1 Codex - Code generation</option>
+            <option value="gpt-5.1-codex-mini">GPT-5.1 Codex Mini - Fast coding</option>
+            <option value="gpt-5.1-codex-max">GPT-5.1 Codex Max - Maximum code quality</option>
+          </optgroup>
+          
+          <optgroup label="🧠 Reasoning Models">
+            <option value="o3-mini">O3 Mini - Advanced reasoning</option>
+            <option value="o4-mini">O4 Mini - Latest reasoning</option>
+          </optgroup>
+          
+          <optgroup label="📦 Legacy Models">
+            <option value="davinci-002">Davinci-002</option>
+            <option value="babbage-002">Babbage-002</option>
+          </optgroup>
         </select>
+        <div className="text-xs text-[#718096] mt-2">
+          Current: {AI_MODELS[selectedModel].name} - {AI_MODELS[selectedModel].description}
+        </div>
       </div>
 
       <div>

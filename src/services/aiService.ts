@@ -1,11 +1,21 @@
 import OpenAI from 'openai';
+import { useAIStore } from '../store/useAIStore';
 
-// API Configuration
-// Current: artemox.com API with $1 budget
-// Alternative: all-team-models API (https://all-team-models.com)
+// API Configuration - artemox.com Gateway (Works worldwide including Russia/Asia)
 // Budget: $1 - Monitor usage at https://artemox.com/ui
 // Username: z2076wfx296ge02ijsxytwj@artemox.com
 // Password: y2n6GiUlDMmZb3HwT5fFKq9z
+//
+// Available Models (1352 keys, 1321 members):
+// - gpt-4o (CURRENT - Best quality/performance balance)
+// - gpt-4o-mini (Faster, cheaper)
+// - gpt-4, gpt-4-turbo, gpt-3.5-turbo
+// - gpt-5, gpt-5-mini, gpt-5-nano, gpt-5.1, gpt-5.2 (Latest)
+// - gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.1-codex-max (Code-specialized)
+// - o3-mini, o4-mini (Reasoning models)
+// - dall-e-2, dall-e-3, gpt-image-1 (Image generation)
+// - text-embedding-ada-002, text-embedding-3-small/large (Embeddings)
+// - whisper-1, tts-1, tts-1-hd (Audio)
 
 const openai = new OpenAI({
   apiKey: 'sk-SDaGmRLAuD9ZleyqqgPawQ',
@@ -18,6 +28,11 @@ const openai = new OpenAI({
 });
 
 export type AIMode = 'code' | 'ask' | 'plan';
+
+// Helper function to get current model
+function getCurrentModel(): string {
+  return useAIStore.getState().selectedModel;
+}
 
 export interface AIMessage {
   role: 'user' | 'assistant' | 'system';
@@ -103,7 +118,7 @@ export class AIService {
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: systemPrompt },
           ...this.conversationHistory
@@ -155,7 +170,7 @@ export class AIService {
 
     try {
       const stream = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: systemPrompt },
           ...this.conversationHistory
@@ -220,7 +235,7 @@ Respond with a JSON array of file edits in this format:
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: 'You are a code editing AI. Respond only with valid JSON.' },
           { role: 'user', content: prompt }
@@ -377,7 +392,7 @@ Respond with valid JSON only in this format:
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Analyze project at: ${projectPath}` }
@@ -417,7 +432,7 @@ Return only the test code, no explanations.`;
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Generate tests for:\n\nFile: ${filePath}\n\n${fileContent}` }
@@ -445,7 +460,7 @@ Focus on:
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `${context ? `Context: ${context}\n\n` : ''}Explain this code:\n\n${code}` }
@@ -473,7 +488,7 @@ Focus on:
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: JSON.stringify(context, null, 2) }
@@ -506,7 +521,7 @@ Focus on:
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'qwen/qwen-2.5-coder-32b-instruct',
+        model: getCurrentModel(),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: JSON.stringify(context, null, 2) }
