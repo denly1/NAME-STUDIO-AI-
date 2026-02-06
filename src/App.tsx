@@ -6,6 +6,7 @@ import ResizableLayout from './components/ResizableLayout'
 import VSCodeStatusBar from './components/VSCodeStatusBar'
 import CommandPalette from './components/CommandPalette'
 import ComprehensiveSettings from './components/ComprehensiveSettings'
+import QuickOpen from './components/QuickOpen'
 import { useLayoutStore } from './store/useLayoutStore'
 import './services/workbench/layoutActions'
 import { keybindingService } from './services/workbench/keybindingService'
@@ -14,6 +15,7 @@ import { executeAction } from './services/workbench/actionRegistry'
 function AppContent() {
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showQuickOpen, setShowQuickOpen] = useState(false)
   const { togglePanel, toggleExplorer, toggleSidebar, setActiveView } = useLayoutStore()
   
   console.log('App rendered, showCommandPalette:', showCommandPalette)
@@ -28,8 +30,13 @@ function AppContent() {
     const handleOpenSettings = () => setShowSettings(true)
     window.addEventListener('openSettings', handleOpenSettings)
 
+    // Обработчик для Quick Open
+    const handleOpenQuickOpen = () => setShowQuickOpen(true)
+    window.addEventListener('openQuickOpen', handleOpenQuickOpen)
+
     return () => {
       window.removeEventListener('openSettings', handleOpenSettings)
+      window.removeEventListener('openQuickOpen', handleOpenQuickOpen)
     }
   }, [])
 
@@ -80,6 +87,11 @@ function AppContent() {
       <CommandPalette 
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
+      />
+
+      <QuickOpen 
+        isOpen={showQuickOpen}
+        onClose={() => setShowQuickOpen(false)}
       />
 
       {showSettings && <ComprehensiveSettings onClose={() => setShowSettings(false)} />}

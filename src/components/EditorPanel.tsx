@@ -6,6 +6,7 @@ import { VscFile, VscFolder, VscFolderOpened } from 'react-icons/vsc';
 import { SiJavascript, SiTypescript, SiPython, SiHtml5, SiCss3, SiJson, SiMarkdown, SiReact } from 'react-icons/si';
 import Breadcrumbs from './Breadcrumbs';
 import TabContextMenu from './TabContextMenu';
+import EditorTabs from './EditorTabs';
 import { FileNode } from '../types';
 
 export default function EditorPanel() {
@@ -211,38 +212,8 @@ export default function EditorPanel() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: '#1e1e1e' }}>
-      {/* Tabs */}
-      <div style={{ height: '36px', background: '#252526', borderBottom: '1px solid #3e3e3e', display: 'flex', alignItems: 'center', overflowX: 'auto', flexShrink: 0 }}>
-        {openFiles.map(file => (
-          <div
-            key={file.path}
-            className="flex items-center gap-2 px-4 py-2 text-sm cursor-pointer border-r border-[#4a5568] hover:bg-white/10 transition-all duration-200 w-[120px] ${
-              currentFile === file.path ? 'bg-[#1e1e1e]' : 'hover:bg-[#2a2d2e]'
-            }"
-            onClick={() => setCurrentFile(file.path)}
-            onContextMenu={(e) => handleTabContextMenu(e, file.path)}
-          >
-            {file.language === 'folder' ? (
-              <VscFolderOpened size={14} className="text-[#dcb67a] flex-shrink-0" />
-            ) : (
-              getFileIcon(file.name)
-            )}
-            <span className="text-sm text-[#cccccc] truncate">
-              {file.name}
-            </span>
-            {file.isDirty && <span className="text-[#f093fb] animate-pulse">●</span>}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                closeFile(file.path);
-              }}
-              className="hover:bg-red-500/20 rounded-md p-0.5 transition-all duration-200 ml-auto"
-            >
-              <X size={12} className="text-[#cccccc]" />
-            </button>
-          </div>
-        ))}
-      </div>
+      {/* Editor Tabs */}
+      <EditorTabs />
 
       {/* Breadcrumbs */}
       <div style={{ flexShrink: 0 }}>

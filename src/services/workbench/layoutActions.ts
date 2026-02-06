@@ -275,6 +275,18 @@ registerAction({
   }
 });
 
+// Quick Open
+registerAction({
+  id: 'workbench.action.quickOpen',
+  title: 'Go to File...',
+  category: 'View',
+  keybinding: 'Ctrl+P',
+  handler: async () => {
+    const event = new CustomEvent('openQuickOpen');
+    window.dispatchEvent(event);
+  }
+});
+
 // Settings
 registerAction({
   id: 'workbench.action.openSettings',
