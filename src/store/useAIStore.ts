@@ -48,7 +48,7 @@ interface AIState {
 export const useAIStore = create<AIState>()(
   persist(
     (set, get) => ({
-      selectedModel: 'gpt-4o',
+      selectedModel: 'gpt-4o', // Default to gpt-4o - stable and supports all parameters
       
       setSelectedModel: (model) => set({ selectedModel: model }),
       

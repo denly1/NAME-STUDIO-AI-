@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Trash2, Sparkles, Code, MessageCircle, ListChecks, Bug, Wand2, FileText, TestTube, FolderSearch, Undo, Play, CheckCircle, AlertTriangle, History, Clock, Plus, X, Zap } from 'lucide-react';
+import { Send, Trash2, Sparkles, Code, MessageCircle, ListChecks, Bug, Wand2, FileText, TestTube, FolderSearch, Undo, Play, CheckCircle, AlertTriangle, History, Clock, Plus, X, Zap, FileCode } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { aiService, AIMode, AgentResponse } from '../services/aiService';
 import DiffViewer from './DiffViewer';
@@ -7,6 +7,7 @@ import AdvancedDiffViewer from './AdvancedDiffViewer';
 import { chatHistoryService, ChatSession } from '../services/chatHistoryService';
 import { agentHarness, AgentTask, AgentStep, AgentPlan } from '../services/agentHarness';
 import { FileDiff } from '../services/agentTools';
+import { AIAgentPanel } from './AIAgentPanel';
 
 interface CodeChange {
   file: string;
@@ -24,7 +25,7 @@ interface AgentMessage {
 }
 
 export default function AIPanel() {
-  const { openFiles, currentFile, updateFileContent, workspaceRoot } = useStore();
+  const { openFiles, currentFile, updateFileContent, workspaceRoot, openFile } = useStore();
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<AIMode>('code');
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -41,6 +42,18 @@ export default function AIPanel() {
   ]);
   const [activeTabId, setActiveTabId] = useState('default');
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  // AI Agent state - Cursor AI-like functionality
+  const [viewMode, setViewMode] = useState<'chat' | 'files'>('chat');
+  const [fileChanges, setFileChanges] = useState<Array<{
+    path: string;
+    action: 'edit' | 'create' | 'delete';
+    oldContent?: string;
+    newContent?: string;
+    explanation: string;
+    applied: boolean;
+  }>>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Helper to refocus input after button clicks
   const refocusInput = () => {
@@ -118,14 +131,84 @@ export default function AIPanel() {
     }
   };
 
+  // AI Agent handlers
+  const handleApplyFileChange = async (index: number) => {
+    const change = fileChanges[index];
+    if (!change || !workspaceRoot) return;
+
+    try {
+      const fullPath = `${workspaceRoot}/${change.path}`;
+      
+      if (change.action === 'delete') {
+        await window.electronAPI.fs.deleteFile(fullPath);
+      } else if (change.action === 'create' || change.action === 'edit') {
+        if (change.newContent) {
+          await window.electronAPI.fs.writeFile(fullPath, change.newContent);
+          
+          // Update in editor if file is open
+          const openFileItem = openFiles.find(f => f.path === fullPath);
+          if (openFileItem) {
+            updateFileContent(fullPath, change.newContent);
+          }
+        }
+      }
+      
+      // Mark as applied
+      setFileChanges(prev => prev.map((c, i) => 
+        i === index ? { ...c, applied: true } : c
+      ));
+      
+      // Add success message
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ Изменение применено: ${change.action} ${change.path}`
+      }]);
+    } catch (error) {
+      console.error('Failed to apply change:', error);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ Ошибка при применении изменения: ${error}`
+      }]);
+    }
+  };
+
+  const handleRejectFileChange = (index: number) => {
+    setFileChanges(prev => prev.filter((_, i) => i !== index));
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `🚫 Изменение отклонено`
+    }]);
+  };
+
+  const handleViewFile = async (path: string) => {
+    if (!workspaceRoot) return;
+    const fullPath = `${workspaceRoot}/${path}`;
+    
+    try {
+      const content = await window.electronAPI.fs.readFile(fullPath);
+      const fileName = path.split('/').pop() || path;
+      const extension = fileName.split('.').pop() || '';
+      
+      openFile({
+        path: fullPath,
+        name: fileName,
+        content,
+        language: extension,
+        isDirty: false
+      });
+    } catch (error) {
+      console.error('Failed to open file:', error);
+    }
+  };
+
   const applyChange = async (change: CodeChange, messageIndex: number) => {
     try {
       // Update file
       await window.electronAPI.fs.writeFile(change.file, change.content);
       
       // Update in editor if file is open
-      const openFile = openFiles.find(f => f.path === change.file);
-      if (openFile) {
+      const openFileItem = openFiles.find(f => f.path === change.file);
+      if (openFileItem) {
         updateFileContent(change.file, change.content);
       }
       
@@ -175,41 +258,92 @@ export default function AIPanel() {
     try {
       aiService.setMode(mode);
       
-      // Build context for AI
-      const context = {
-        files: openFiles.map(f => ({ path: f.path, name: f.name, language: f.language })),
-        currentFile: currentFile || undefined
-      };
+      // Check if request involves file modifications (Cursor AI mode)
+      const isFileModificationRequest = 
+        userMessage.toLowerCase().includes('изменить') ||
+        userMessage.toLowerCase().includes('создать') ||
+        userMessage.toLowerCase().includes('добавить') ||
+        userMessage.toLowerCase().includes('исправить') ||
+        userMessage.toLowerCase().includes('рефактор') ||
+        userMessage.toLowerCase().includes('удалить') ||
+        userMessage.toLowerCase().includes('файл') ||
+        mode === 'code';
+
+      if (isFileModificationRequest && workspaceRoot) {
+        // AI Agent mode - analyze and modify files
+        setIsAnalyzing(true);
+        setViewMode('files');
+        
+        // Scan project files
+        const projectFiles = await aiService.scanProjectFiles(workspaceRoot);
+        
+        // Get relevant files (currently open + scanned)
+        const relevantFiles = [
+          ...openFiles.map(f => f.path.replace(`${workspaceRoot}/`, '')),
+          ...projectFiles.slice(0, 10) // Limit to 10 files for context
+        ];
+        
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[assistantMessageIndex] = {
+            role: 'assistant',
+            content: `🔍 Анализирую проект и готовлю изменения...\n\nНайдено файлов: ${relevantFiles.length}`
+          };
+          return newMessages;
+        });
+        
+        // Analyze and generate file changes
+        const result = await aiService.analyzeAndModifyFiles(
+          userMessage,
+          workspaceRoot,
+          relevantFiles
+        );
+        
+        // Set file changes for AI Agent Panel
+        setFileChanges(result.changes.map(c => ({ ...c, applied: false })));
+        
+        // Update message with reasoning
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[assistantMessageIndex] = {
+            role: 'assistant',
+            content: `✅ Анализ завершен!\n\n**Обоснование:**\n${result.reasoning}\n\n**Предложено изменений:** ${result.changes.length}\n\nПерейдите на вкладку "Files" чтобы просмотреть и применить изменения.`
+          };
+          return newMessages;
+        });
+        
+        setIsAnalyzing(false);
+      } else {
+        // Normal chat mode
+        const context = {
+          files: openFiles.map(f => ({ path: f.path, name: f.name, language: f.language })),
+          currentFile: currentFile || undefined
+        };
+        
+        const response = await aiService.chat(userMessage, context);
+        
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[assistantMessageIndex] = {
+            role: 'assistant',
+            content: response
+          };
+          return newMessages;
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to get response';
       
-      // Use simple chat method for normal conversation
-      const response = await aiService.chat(userMessage, context);
-      
-      // Update the assistant message with the response
       setMessages(prev => {
         const newMessages = [...prev];
         newMessages[assistantMessageIndex] = {
           role: 'assistant',
-          content: response
+          content: `❌ ${errorMessage}`
         };
         return newMessages;
       });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to get response';
       
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: errorMessage
-      }]);
-      
-      // If it's a quota error, show additional help
-      if (errorMessage.includes('Quota Exceeded')) {
-        setTimeout(() => {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `💡 How to fix:\n\n1. Go to https://platform.openai.com/account/billing\n2. Add credits to your account\n3. Or get a new API key from https://platform.openai.com/api-keys\n4. Update the key in: src/services/aiService.ts`
-          }]);
-        }, 500);
-      }
+      setIsAnalyzing(false);
     } finally {
       setIsLoading(false);
     }
@@ -408,6 +542,37 @@ export default function AIPanel() {
           </button>
         </div>
         
+        {/* View Mode Tabs (Chat / Files) */}
+        <div className="flex border-t border-[#3e3e3e] bg-[#1a1a2e]">
+          <button
+            onClick={() => setViewMode('chat')}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold transition-all ${
+              viewMode === 'chat'
+                ? 'bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white border-b-2 border-[#f093fb]'
+                : 'text-[#a0aec0] hover:bg-white/5'
+            }`}
+          >
+            <MessageCircle size={14} />
+            <span>Chat</span>
+          </button>
+          <button
+            onClick={() => setViewMode('files')}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold transition-all ${
+              viewMode === 'files'
+                ? 'bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white border-b-2 border-[#f093fb]'
+                : 'text-[#a0aec0] hover:bg-white/5'
+            }`}
+          >
+            <FileCode size={14} />
+            <span>Files</span>
+            {fileChanges.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-[#f093fb] text-white text-[10px] rounded-full font-bold">
+                {fileChanges.length}
+              </span>
+            )}
+          </button>
+        </div>
+
         {/* Mode Switcher */}
         <div className="flex border-t border-[#3e3e3e]">
           {modes.map(m => {
@@ -457,18 +622,29 @@ export default function AIPanel() {
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ background: 'transparent' }}>
-        {messages.length === 0 ? (
-          <div className="text-center mt-12">
-            <div className="inline-block p-4 rounded-2xl mb-4" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', boxShadow: '0 0 40px rgba(102, 126, 234, 0.6)' }}>
-              <Sparkles size={48} className="text-white" />
+      {/* Content Area - Chat or Files */}
+      {viewMode === 'files' ? (
+        <div className="flex-1 overflow-hidden">
+          <AIAgentPanel
+            changes={fileChanges}
+            onApplyChange={handleApplyFileChange}
+            onRejectChange={handleRejectFileChange}
+            onViewFile={handleViewFile}
+            isProcessing={isAnalyzing}
+          />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ background: 'transparent' }}>
+          {messages.length === 0 ? (
+            <div className="text-center mt-12">
+              <div className="inline-block p-4 rounded-2xl mb-4" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', boxShadow: '0 0 40px rgba(102, 126, 234, 0.6)' }}>
+                <Sparkles size={48} className="text-white" />
+              </div>
+              <p className="text-2xl font-black mb-2" style={{ background: 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Welcome to NAME STUDIO AI</p>
+              <p className="text-sm text-[#a0aec0] mb-1">Your Premium AI-Powered Coding Assistant</p>
+              <p className="text-xs text-[#718096] mt-3">✨ Powered by Artemox AI - Advanced coding assistant with file modification capabilities</p>
             </div>
-            <p className="text-2xl font-black mb-2" style={{ background: 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Welcome to NAME STUDIO AI</p>
-            <p className="text-sm text-[#a0aec0] mb-1">Your Premium AI-Powered Coding Assistant</p>
-            <p className="text-xs text-[#718096] mt-3">✨ Powered by DeepSeek R1 - Advanced reasoning AI for your code</p>
-          </div>
-        ) : (
+          ) : (
           messages.map((msg, index) => (
             <div key={index} className="space-y-2">
               <div
@@ -593,8 +769,13 @@ export default function AIPanel() {
             )}
           </div>
           ))
-        )}
-        {isLoading && (
+          )}
+        </div>
+      )}
+
+      {/* Loading Indicator */}
+      {isLoading && viewMode === 'chat' && (
+        <div className="p-4">
           <div 
             className="flex items-center gap-3 p-4 rounded-xl max-w-[80%] animate-pulse"
             style={{
@@ -612,10 +793,11 @@ export default function AIPanel() {
               <div className="text-xs text-[#a0aec0]">Processing your request with advanced reasoning</div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Input */}
+      {viewMode === 'chat' && (
       <div className="p-4 border-t border-[#4a5568]" style={{ background: 'linear-gradient(90deg, #1a1a2e 0%, #16213e 100%)', backdropFilter: 'blur(10px)' }}>
         <div className="flex gap-2">
           {/* Quick Actions Dropdown */}
@@ -808,6 +990,7 @@ export default function AIPanel() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

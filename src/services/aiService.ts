@@ -19,31 +19,56 @@ import { useAIStore } from '../store/useAIStore';
 const API_KEY = 'sk-SDaGmRLAuD9ZleyqqgPawQ';
 const BASE_URL = 'https://api.artemox.com/v1';
 
-// Direct fetch to avoid CORS issues in Electron
-async function callAPI(messages: any[], temperature: number = 0.15, maxTokens: number = 8000, stream: boolean = false) {
-  const model = useAIStore.getState().selectedModel;
+// Use Electron IPC to bypass CORS - requests go through main process
+async function callAPI(messages: any[], temperature: number = 0.15, maxTokens: number = 8000) {
+  let model = useAIStore.getState().selectedModel;
   
-  const response = await fetch(`${BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      stream
-    })
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error: ${response.status} - ${error}`);
+  // Auto-fix: If model is codex variant, switch to gpt-4o (codex doesn't support temperature)
+  if (model.includes('codex') || model.includes('gpt-5')) {
+    console.warn(`Model ${model} may not support temperature parameter. Switching to gpt-4o.`);
+    model = 'gpt-4o';
+    useAIStore.getState().setSelectedModel('gpt-4o');
   }
-
-  return response;
+  
+  try {
+    // @ts-ignore - electronAPI.ai is defined in preload.cjs
+    const response = await window.electronAPI.ai.chat(messages, model, temperature, maxTokens);
+    
+    // Log response for debugging
+    console.log('AI API Response:', response);
+    
+    // Check for API error response
+    if (response && response.error) {
+      const errorMsg = response.error.message || 'Unknown API error';
+      console.error('API returned error:', response.error);
+      
+      // User-friendly error messages
+      if (errorMsg.includes('temperature') && errorMsg.includes('not supported')) {
+        throw new Error(`❌ Модель ${model} не поддерживает параметр temperature. Попробуйте другую модель (например, gpt-4o).`);
+      } else if (errorMsg.includes('Unsupported parameter')) {
+        throw new Error(`❌ Модель ${model} не поддерживает некоторые параметры. Попробуйте gpt-4o или gpt-4o-mini.`);
+      } else if (errorMsg.includes('quota') || errorMsg.includes('limit')) {
+        throw new Error('⚠️ Превышен лимит API. Проверьте баланс на https://artemox.com/ui');
+      } else {
+        throw new Error(`❌ Ошибка API: ${errorMsg}`);
+      }
+    }
+    
+    // Validate response structure
+    if (!response || !response.choices || !Array.isArray(response.choices) || response.choices.length === 0) {
+      console.error('Invalid API response structure:', response);
+      throw new Error('❌ Неверный формат ответа от API. Попробуйте другую модель.');
+    }
+    
+    return response;
+  } catch (error: any) {
+    console.error('API call failed:', error);
+    // Re-throw if already formatted, otherwise format
+    if (error.message.startsWith('❌') || error.message.startsWith('⚠️')) {
+      throw error;
+    }
+    throw new Error(`❌ Ошибка AI: ${error.message}`);
+  }
 }
 
 export type AIMode = 'code' | 'ask' | 'plan';
@@ -136,12 +161,11 @@ export class AIService {
     });
 
     try {
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: systemPrompt },
         ...this.conversationHistory
-      ], 0.15, 8000, false);
+      ], 0.15, 8000);
 
-      const data = await response.json();
       const assistantMessage = data.choices[0].message.content || '';
       
       this.conversationHistory.push({
@@ -184,12 +208,11 @@ export class AIService {
 
     try {
       // Use non-streaming for now to avoid CORS issues
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: systemPrompt },
         ...this.conversationHistory
-      ], 0.15, 8000, false);
+      ], 0.15, 8000);
 
-      const data = await response.json();
       const fullResponse = data.choices[0].message.content || '';
       
       this.conversationHistory.push({
@@ -239,12 +262,11 @@ Respond with a JSON array of file edits in this format:
 ]`;
 
     try {
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: 'You are a code editing AI. Respond only with valid JSON.' },
         { role: 'user', content: prompt }
       ], 0.3);
 
-      const data = await response.json();
       const content = data.choices[0].message.content || '[]';
       const edits = JSON.parse(content);
       return edits;
@@ -393,12 +415,11 @@ Respond with valid JSON only in this format:
 }`;
 
     try {
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Analyze project at: ${projectPath}` }
       ], 0.2, 8000);
 
-      const data = await response.json();
       const content = data.choices[0].message.content || '{}';
       const analysis = JSON.parse(content);
       return analysis;
@@ -429,12 +450,11 @@ Requirements:
 Return only the test code, no explanations.`;
 
     try {
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Generate tests for:\n\nFile: ${filePath}\n\n${fileContent}` }
       ], 0.2, 8000);
 
-      const data = await response.json();
       return data.choices[0].message.content || '';
     } catch (error) {
       console.error('Test generation error:', error);
@@ -453,12 +473,11 @@ Focus on:
 - Suggestions for improvement`;
 
     try {
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `${context ? `Context: ${context}\n\n` : ''}Explain this code:\n\n${code}` }
       ], 0.3, 4000);
 
-      const data = await response.json();
       return data.choices[0].message.content || '';
     } catch (error) {
       console.error('Code explanation error:', error);
@@ -477,12 +496,11 @@ Focus on:
     };
 
     try {
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: JSON.stringify(context, null, 2) }
       ], 0.15, 8000);
 
-      const data = await response.json();
       const content = data.choices[0].message.content || '{}';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -506,12 +524,11 @@ Focus on:
     };
 
     try {
-      const response = await callAPI([
+      const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: JSON.stringify(context, null, 2) }
       ], 0.15, 8000);
 
-      const data = await response.json();
       const content = data.choices[0].message.content || '{}';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -531,6 +548,118 @@ Focus on:
 
   getHistory(): AIMessage[] {
     return this.conversationHistory;
+  }
+
+  // Cursor AI-like methods for file operations
+  async analyzeAndModifyFiles(
+    instruction: string,
+    projectPath: string,
+    relevantFiles: string[] = []
+  ): Promise<{
+    changes: Array<{
+      path: string;
+      action: 'edit' | 'create' | 'delete';
+      oldContent?: string;
+      newContent?: string;
+      explanation: string;
+    }>;
+    reasoning: string;
+  }> {
+    const systemPrompt = `You are an expert AI coding assistant like Cursor AI.
+Your task is to analyze the user's request and generate precise file changes.
+
+IMPORTANT RULES:
+1. Always provide complete file content, not snippets
+2. Explain each change clearly
+3. Consider the entire project context
+4. Return valid JSON only
+
+Response format:
+{
+  "reasoning": "Why these changes are needed",
+  "changes": [
+    {
+      "path": "relative/path/to/file.ts",
+      "action": "edit" | "create" | "delete",
+      "oldContent": "current file content (for edit)",
+      "newContent": "new file content (for edit/create)",
+      "explanation": "What this change does"
+    }
+  ]
+}`;
+
+    try {
+      // Read relevant files if provided
+      const fileContents: Record<string, string> = {};
+      for (const filePath of relevantFiles) {
+        try {
+          const fullPath = `${projectPath}/${filePath}`;
+          const content = await window.electronAPI.fs.readFile(fullPath);
+          fileContents[filePath] = content;
+        } catch (error) {
+          console.warn(`Could not read file ${filePath}:`, error);
+        }
+      }
+
+      const context = {
+        instruction,
+        projectPath,
+        files: fileContents,
+        availableFiles: relevantFiles
+      };
+
+      const data = await callAPI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: JSON.stringify(context, null, 2) }
+      ], 0.2, 16000);
+
+      const content = data.choices[0].message.content || '{}';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+
+      throw new Error('Invalid response format');
+    } catch (error) {
+      console.error('File analysis error:', error);
+      throw error;
+    }
+  }
+
+  async scanProjectFiles(projectPath: string, maxFiles: number = 50): Promise<string[]> {
+    try {
+      const files = await window.electronAPI.fs.readDir(projectPath);
+      const sourceFiles = files
+        .filter((f: any) => {
+          const name = f.name.toLowerCase();
+          return (
+            f.type === 'file' &&
+            (name.endsWith('.ts') ||
+             name.endsWith('.tsx') ||
+             name.endsWith('.js') ||
+             name.endsWith('.jsx') ||
+             name.endsWith('.css') ||
+             name.endsWith('.json') ||
+             name.endsWith('.md'))
+          );
+        })
+        .map((f: any) => f.name)
+        .slice(0, maxFiles);
+
+      return sourceFiles;
+    } catch (error) {
+      console.error('Error scanning project files:', error);
+      return [];
+    }
+  }
+
+  async readFileContent(filePath: string): Promise<string> {
+    try {
+      return await window.electronAPI.fs.readFile(filePath);
+    } catch (error) {
+      console.error(`Error reading file ${filePath}:`, error);
+      return '';
+    }
   }
 }
 

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as fs from 'fs/promises';
 import * as http from 'http';
+import * as https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -328,5 +329,79 @@ function registerIPCHandlers() {
       terminal.kill();
       terminals.delete(id);
     }
+  });
+
+  // AI API handler - bypass CORS by making requests from Node.js
+  ipcMain.handle('ai:chat', async (_event, messages: any[], model: string, temperature: number, maxTokens: number) => {
+    return new Promise((resolve, reject) => {
+      const data = JSON.stringify({
+        model,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+        stream: false
+      });
+
+      const options = {
+        hostname: 'api.artemox.com',
+        port: 443,
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer sk-SDaGmRLAuD9ZleyqqgPawQ',
+          'Content-Length': Buffer.byteLength(data)
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        let responseData = '';
+
+        console.log('AI API Response Status:', res.statusCode);
+
+        res.on('data', (chunk) => {
+          responseData += chunk;
+        });
+
+        res.on('end', () => {
+          console.log('AI API Response Data:', responseData);
+          
+          // Check HTTP status code before parsing
+          if (res.statusCode && res.statusCode >= 400) {
+            console.error(`AI API HTTP Error ${res.statusCode}:`, responseData);
+            
+            // User-friendly error messages
+            if (res.statusCode === 502) {
+              reject(new Error('🔧 Сервер artemox.com временно недоступен (502). Попробуйте через минуту.'));
+            } else if (res.statusCode === 503) {
+              reject(new Error('⚠️ Сервис перегружен (503). Попробуйте позже.'));
+            } else if (res.statusCode === 429) {
+              reject(new Error('⚠️ Превышен лимит запросов (429). Проверьте баланс на https://artemox.com/ui'));
+            } else if (res.statusCode === 401) {
+              reject(new Error('🔑 Неверный API ключ (401). Проверьте настройки.'));
+            } else {
+              reject(new Error(`❌ HTTP ошибка ${res.statusCode}: ${responseData}`));
+            }
+            return;
+          }
+          
+          try {
+            const parsed = JSON.parse(responseData);
+            console.log('AI API Parsed Response:', parsed);
+            resolve(parsed);
+          } catch (error) {
+            console.error('Failed to parse AI API response:', error);
+            reject(new Error(`Failed to parse response: ${error}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(new Error(`API request failed: ${error.message}`));
+      });
+
+      req.write(data);
+      req.end();
+    });
   });
 }

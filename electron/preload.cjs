@@ -30,5 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onExit: (callback) => {
       ipcRenderer.on('terminal:exit', (_event, id) => callback(id));
     }
+  },
+  ai: {
+    chat: (messages, model, temperature, maxTokens) => 
+      ipcRenderer.invoke('ai:chat', messages, model, temperature, maxTokens)
   }
 });
