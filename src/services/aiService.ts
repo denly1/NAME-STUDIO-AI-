@@ -1,73 +1,140 @@
 import { useAIStore } from '../store/useAIStore';
+import { TIMEWEB_CONFIG, TIMEWEB_AUTH_TOKEN, AGENT_MODE_CONFIGS, AgentMode, DEFAULT_MODEL, TOKEN_LIMITS } from '../config/aiProviders';
 
-// API Configuration - artemox.com Gateway (Works worldwide including Russia/Asia)
-// Budget: $1 - Monitor usage at https://artemox.com/ui
-// Username: z2076wfx296ge02ijsxytwj@artemox.com
-// Password: y2n6GiUlDMmZb3HwT5fFKq9z
-//
-// Available Models (1352 keys, 1321 members):
-// - gpt-4o (CURRENT - Best quality/performance balance)
-// - gpt-4o-mini (Faster, cheaper)
-// - gpt-4, gpt-4-turbo, gpt-3.5-turbo
-// - gpt-5, gpt-5-mini, gpt-5-nano, gpt-5.1, gpt-5.2 (Latest)
-// - gpt-5.1-codex, gpt-5.1-codex-mini, gpt-5.1-codex-max (Code-specialized)
-// - o3-mini, o4-mini (Reasoning models)
-// - dall-e-2, dall-e-3, gpt-image-1 (Image generation)
-// - text-embedding-ada-002, text-embedding-3-small/large (Embeddings)
-// - whisper-1, tts-1, tts-1-hd (Audio)
+// Timeweb Cloud AI Service - DeepSeek V3.2
+// Windsurf/Cursor level AI agent with 5 modes:
+// 1. Planner - разбивка задач (800 tokens, temp 0.4)
+// 2. Writer - генерация кода (1800 tokens, temp 0.25)
+// 3. Patch - diff/patch (1200 tokens, temp 0.15)
+// 4. Reviewer - ревью/баги (900 tokens, temp 0.2)
+// 5. AutoFix - исправления (1000 tokens, temp 0.2)
 
-const API_KEY = 'sk-SDaGmRLAuD9ZleyqqgPawQ';
-const BASE_URL = 'https://api.artemox.com/v1';
+// Current agent mode
+let currentMode: AgentMode = 'writer';
+
+// Token usage tracking
+let tokenUsage = {
+  total: 0,
+  prompts: 0,
+  responses: 0,
+  promptCount: 0
+};
+
+export function setAgentMode(mode: AgentMode) {
+  currentMode = mode;
+  console.log(`Agent mode switched to: ${mode} (${AGENT_MODE_CONFIGS[mode].description})`);
+}
+
+export function getAgentMode(): AgentMode {
+  return currentMode;
+}
+
+export function getTokenUsage() {
+  return {
+    ...tokenUsage,
+    remaining: TOKEN_LIMITS.totalBudget - tokenUsage.total,
+    averagePerPrompt: tokenUsage.promptCount > 0 ? Math.round(tokenUsage.total / tokenUsage.promptCount) : 0,
+    estimatedPromptsRemaining: Math.floor((TOKEN_LIMITS.totalBudget - tokenUsage.total) / TOKEN_LIMITS.maxPerPrompt)
+  };
+}
+
+export function resetTokenUsage() {
+  tokenUsage = { total: 0, prompts: 0, responses: 0, promptCount: 0 };
+}
 
 // Use Electron IPC to bypass CORS - requests go through main process
-async function callAPI(messages: any[], temperature: number = 0.15, maxTokens: number = 8000) {
-  let model = useAIStore.getState().selectedModel;
-  
-  // Auto-fix: If model is codex variant, switch to gpt-4o (codex doesn't support temperature)
-  if (model.includes('codex') || model.includes('gpt-5')) {
-    console.warn(`Model ${model} may not support temperature parameter. Switching to gpt-4o.`);
-    model = 'gpt-4o';
-    useAIStore.getState().setSelectedModel('gpt-4o');
-  }
-  
+async function callAPI(
+  messages: any[], 
+  mode: AgentMode = currentMode,
+  retryCount: number = 0
+): Promise<any> {
+  const maxRetries = 3;
+  const retryDelay = (attempt: number) => Math.min(1000 * Math.pow(2, attempt), 10000);
+
   try {
-    // @ts-ignore - electronAPI.ai is defined in preload.cjs
-    const response = await window.electronAPI.ai.chat(messages, model, temperature, maxTokens);
-    
-    // Log response for debugging
-    console.log('AI API Response:', response);
-    
-    // Check for API error response
-    if (response && response.error) {
-      const errorMsg = response.error.message || 'Unknown API error';
-      console.error('API returned error:', response.error);
-      
-      // User-friendly error messages
-      if (errorMsg.includes('temperature') && errorMsg.includes('not supported')) {
-        throw new Error(`❌ Модель ${model} не поддерживает параметр temperature. Попробуйте другую модель (например, gpt-4o).`);
-      } else if (errorMsg.includes('Unsupported parameter')) {
-        throw new Error(`❌ Модель ${model} не поддерживает некоторые параметры. Попробуйте gpt-4o или gpt-4o-mini.`);
-      } else if (errorMsg.includes('quota') || errorMsg.includes('limit')) {
-        throw new Error('⚠️ Превышен лимит API. Проверьте баланс на https://artemox.com/ui');
-      } else {
-        throw new Error(`❌ Ошибка API: ${errorMsg}`);
-      }
+    const modeConfig = AGENT_MODE_CONFIGS[mode];
+    const model = getCurrentModel();
+
+    // Prepare request with mode-specific configuration
+    const requestData: any = {
+      messages,
+      model,
+      temperature: modeConfig.temperature,
+      max_tokens: modeConfig.maxTokens,
+      top_p: modeConfig.topP,
+      presence_penalty: modeConfig.presencePenalty,
+      frequency_penalty: modeConfig.frequencyPenalty,
+      provider: 'timeweb',
+      agentAccessId: TIMEWEB_CONFIG.agentAccessId,
+      authToken: TIMEWEB_AUTH_TOKEN // JWT токен из конфига
+    };
+
+    console.log(`[${mode.toUpperCase()}] API call:`, {
+      model,
+      maxTokens: modeConfig.maxTokens,
+      temperature: modeConfig.temperature
+    });
+
+    // @ts-ignore - window.electronAPI.ai exists at runtime
+    const data = await window.electronAPI.ai.chat(requestData);
+
+    // Track token usage
+    if (data.usage) {
+      tokenUsage.prompts += data.usage.prompt_tokens || 0;
+      tokenUsage.responses += data.usage.completion_tokens || 0;
+      tokenUsage.total += data.usage.total_tokens || 0;
+      tokenUsage.promptCount++;
+
+      console.log(`[${mode.toUpperCase()}] Tokens used:`, data.usage.total_tokens, 
+        `| Total: ${tokenUsage.total}/${TOKEN_LIMITS.totalBudget}`,
+        `| Remaining prompts: ~${Math.floor((TOKEN_LIMITS.totalBudget - tokenUsage.total) / TOKEN_LIMITS.maxPerPrompt)}`
+      );
+
+      // Emit token update event
+      window.dispatchEvent(new CustomEvent('token-stats-update', {
+        detail: {
+          sessionTokens: tokenUsage.total,
+          totalTokens: tokenUsage.total,
+          remainingTokens: TOKEN_LIMITS.totalBudget - tokenUsage.total,
+          promptCount: tokenUsage.promptCount,
+          estimatedCost: (tokenUsage.total / 1000000) * 0.1, // Примерная стоимость
+          currentModel: model
+        }
+      }));
     }
-    
-    // Validate response structure
-    if (!response || !response.choices || !Array.isArray(response.choices) || response.choices.length === 0) {
-      console.error('Invalid API response structure:', response);
-      throw new Error('❌ Неверный формат ответа от API. Попробуйте другую модель.');
-    }
-    
-    return response;
+
+    return data;
   } catch (error: any) {
-    console.error('API call failed:', error);
-    // Re-throw if already formatted, otherwise format
-    if (error.message.startsWith('❌') || error.message.startsWith('⚠️')) {
+    console.error(`[${mode.toUpperCase()}] API call failed:`, error);
+    
+    // Check if error is timeout or connection error
+    const isTimeoutError = error.message && (
+      error.message.includes('ETIMEDOUT') ||
+      error.message.includes('ECONNREFUSED') ||
+      error.message.includes('ENOTFOUND') ||
+      error.message.includes('timeout')
+    );
+
+    // Retry on timeout errors
+    if (isTimeoutError && retryCount < maxRetries) {
+      const delay = retryDelay(retryCount);
+      console.log(`Retrying API call in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return callAPI(messages, mode, retryCount + 1);
+    }
+    
+    // Add helpful error message for timeout
+    if (isTimeoutError) {
+      throw new Error(`❌ Ошибка подключения к Timeweb Cloud AI: Превышено время ожидания. Проверьте подключение к интернету.`);
+    }
+    
+    // Re-throw if already formatted
+    if (error.message && (error.message.startsWith('❌') || error.message.startsWith('⚠️'))) {
       throw error;
     }
-    throw new Error(`❌ Ошибка AI: ${error.message}`);
+    
+    throw new Error(`❌ Ошибка AI: ${error.message || String(error)}`);
   }
 }
 
@@ -75,7 +142,7 @@ export type AIMode = 'code' | 'ask' | 'plan';
 
 // Helper function to get current model
 function getCurrentModel(): string {
-  return useAIStore.getState().selectedModel;
+  return useAIStore.getState().selectedModel || DEFAULT_MODEL;
 }
 
 export interface AIMessage {
@@ -164,7 +231,7 @@ export class AIService {
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         ...this.conversationHistory
-      ], 0.15, 8000);
+      ], 'writer'); // Use writer mode for code generation
 
       const assistantMessage = data.choices[0].message.content || '';
       
@@ -211,7 +278,7 @@ export class AIService {
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         ...this.conversationHistory
-      ], 0.15, 8000);
+      ], 'writer');
 
       const fullResponse = data.choices[0].message.content || '';
       
@@ -265,7 +332,7 @@ Respond with a JSON array of file edits in this format:
       const data = await callAPI([
         { role: 'system', content: 'You are a code editing AI. Respond only with valid JSON.' },
         { role: 'user', content: prompt }
-      ], 0.3);
+      ], 'writer');
 
       const content = data.choices[0].message.content || '[]';
       const edits = JSON.parse(content);
@@ -418,7 +485,7 @@ Respond with valid JSON only in this format:
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Analyze project at: ${projectPath}` }
-      ], 0.2, 8000);
+      ], 'planner');
 
       const content = data.choices[0].message.content || '{}';
       const analysis = JSON.parse(content);
@@ -453,7 +520,7 @@ Return only the test code, no explanations.`;
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Generate tests for:\n\nFile: ${filePath}\n\n${fileContent}` }
-      ], 0.2, 8000);
+      ], 'writer');
 
       return data.choices[0].message.content || '';
     } catch (error) {
@@ -476,7 +543,7 @@ Focus on:
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `${context ? `Context: ${context}\n\n` : ''}Explain this code:\n\n${code}` }
-      ], 0.3, 4000);
+      ], 'reviewer');
 
       return data.choices[0].message.content || '';
     } catch (error) {
@@ -499,7 +566,7 @@ Focus on:
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: JSON.stringify(context, null, 2) }
-      ], 0.15, 8000);
+      ], 'autofix');
 
       const content = data.choices[0].message.content || '{}';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -527,7 +594,7 @@ Focus on:
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: JSON.stringify(context, null, 2) }
-      ], 0.15, 8000);
+      ], 'reviewer');
 
       const content = data.choices[0].message.content || '{}';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -568,58 +635,147 @@ Focus on:
     const systemPrompt = `You are an expert AI coding assistant like Cursor AI.
 Your task is to analyze the user's request and generate precise file changes.
 
-IMPORTANT RULES:
-1. Always provide complete file content, not snippets
-2. Explain each change clearly
-3. Consider the entire project context
-4. Return valid JSON only
+CONTEXT: You receive file metadata (lines, size, preview of first 10 lines) instead of full contents.
 
-Response format:
+CRITICAL RULES:
+1. Generate FOCUSED improvements - 1-3 key changes maximum
+2. For edits: provide SHORT, SPECIFIC code snippets (max 50 lines)
+3. For new files: keep them small and focused (max 100 lines)
+4. Return VALID, COMPLETE JSON - ensure all strings are properly closed
+5. Keep explanations brief (max 30 words each)
+
+Response format (MUST be valid JSON):
 {
-  "reasoning": "Why these changes are needed",
+  "reasoning": "Brief explanation (max 50 words)",
   "changes": [
     {
-      "path": "relative/path/to/file.ts",
+      "path": "relative/path/to/file.ext",
       "action": "edit" | "create" | "delete",
-      "oldContent": "current file content (for edit)",
-      "newContent": "new file content (for edit/create)",
-      "explanation": "What this change does"
+      "oldContent": "specific section to replace (if edit)",
+      "newContent": "improved version",
+      "explanation": "What this improves (max 30 words)"
     }
   ]
-}`;
+}
+
+IMPORTANT: 
+- Ensure JSON is complete and valid
+- Close all strings and brackets
+- Keep changes small and focused
+- Maximum 3 changes per response`;
 
     try {
-      // Read relevant files if provided
-      const fileContents: Record<string, string> = {};
-      for (const filePath of relevantFiles) {
+      // If no relevant files provided, scan the project
+      let filesToAnalyze = relevantFiles || [];
+      if (!filesToAnalyze || filesToAnalyze.length === 0) {
+        console.log('[AI Service] No files provided, scanning project:', projectPath);
+        try {
+          filesToAnalyze = await this.scanProjectFiles(projectPath, 20) || [];
+          console.log('[AI Service] Found files:', filesToAnalyze);
+        } catch (error) {
+          console.warn('[AI Service] Failed to scan project:', error);
+          filesToAnalyze = [];
+        }
+      }
+
+      // Read file metadata (not full contents to save tokens)
+      const fileMetadata: Record<string, { lines: number; size: number; preview: string }> = {};
+      for (const filePath of filesToAnalyze) {
         try {
           const fullPath = `${projectPath}/${filePath}`;
           const content = await window.electronAPI.fs.readFile(fullPath);
-          fileContents[filePath] = content;
+          const lines = content.split('\n');
+          fileMetadata[filePath] = {
+            lines: lines.length,
+            size: content.length,
+            preview: lines.slice(0, 10).join('\n') // First 10 lines only
+          };
+          console.log(`[AI Service] Scanned file: ${filePath} (${lines.length} lines, ${content.length} chars)`);
         } catch (error) {
           console.warn(`Could not read file ${filePath}:`, error);
         }
       }
 
+      console.log(`[AI Service] Total files scanned: ${Object.keys(fileMetadata).length}`);
+
       const context = {
         instruction,
         projectPath,
-        files: fileContents,
-        availableFiles: relevantFiles
+        fileMetadata,
+        availableFiles: filesToAnalyze,
+        note: "File previews show first 10 lines. Provide concise improvements focusing on key changes."
       };
 
       const data = await callAPI([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: JSON.stringify(context, null, 2) }
-      ], 0.2, 16000);
+      ], 'writer');
 
       const content = data.choices[0].message.content || '{}';
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+      
+      // Try to extract JSON from markdown code blocks first
+      let jsonText = content.trim();
+      
+      // Remove markdown code block markers (```json or ```)
+      if (jsonText.startsWith('```')) {
+        // Remove opening ```json or ```
+        jsonText = jsonText.replace(/^```(?:json)?\s*\n?/, '');
+        // Remove closing ```
+        jsonText = jsonText.replace(/\n?```\s*$/, '');
+        jsonText = jsonText.trim();
       }
-
-      throw new Error('Invalid response format');
+      
+      // If still no valid JSON, try to find the JSON object
+      if (!jsonText.startsWith('{')) {
+        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          jsonText = jsonMatch[0];
+        }
+      }
+      
+      // Try to parse JSON
+      try {
+        return JSON.parse(jsonText);
+      } catch (parseError) {
+        console.error('Failed to parse JSON:', parseError);
+        console.error('Raw content (first 2000 chars):', content.substring(0, 2000));
+        console.error('Extracted JSON text (first 1000 chars):', jsonText.substring(0, 1000));
+        
+        // Try to fix common JSON issues
+        try {
+          // Attempt to close unclosed strings and objects
+          let fixedJson = jsonText;
+          
+          // Count braces to see if we need to close the object
+          const openBraces = (fixedJson.match(/\{/g) || []).length;
+          const closeBraces = (fixedJson.match(/\}/g) || []).length;
+          
+          if (openBraces > closeBraces) {
+            // Try to close unclosed strings first
+            const lastQuote = fixedJson.lastIndexOf('"');
+            const lastColon = fixedJson.lastIndexOf(':');
+            
+            if (lastQuote > lastColon && !fixedJson.substring(lastQuote + 1).includes('"')) {
+              fixedJson += '"';
+            }
+            
+            // Close missing braces
+            fixedJson += '}'.repeat(openBraces - closeBraces);
+          }
+          
+          const parsed = JSON.parse(fixedJson);
+          console.log('Successfully fixed and parsed JSON');
+          return parsed;
+        } catch (fixError) {
+          console.error('Failed to fix JSON:', fixError);
+          
+          // Return a default error response
+          return {
+            reasoning: 'AI response was incomplete or malformed. Please try with a more specific request.',
+            changes: []
+          };
+        }
+      }
     } catch (error) {
       console.error('File analysis error:', error);
       throw error;
@@ -638,8 +794,25 @@ Response format:
              name.endsWith('.tsx') ||
              name.endsWith('.js') ||
              name.endsWith('.jsx') ||
+             name.endsWith('.dart') ||
+             name.endsWith('.py') ||
+             name.endsWith('.java') ||
+             name.endsWith('.cpp') ||
+             name.endsWith('.c') ||
+             name.endsWith('.h') ||
+             name.endsWith('.go') ||
+             name.endsWith('.rs') ||
+             name.endsWith('.php') ||
+             name.endsWith('.rb') ||
+             name.endsWith('.swift') ||
+             name.endsWith('.kt') ||
+             name.endsWith('.vue') ||
+             name.endsWith('.html') ||
              name.endsWith('.css') ||
+             name.endsWith('.scss') ||
              name.endsWith('.json') ||
+             name.endsWith('.yaml') ||
+             name.endsWith('.yml') ||
              name.endsWith('.md'))
           );
         })

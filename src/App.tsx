@@ -57,11 +57,9 @@ function AppContent() {
       <MenuBar 
         onOpenSettings={() => setShowSettings(true)}
         onAction={async (action) => {
-          // Используем новую систему действий
           if (action.startsWith('workbench.')) {
             await executeAction(action);
           } else {
-            // Legacy actions для обратной совместимости
             const { useStore: store } = await import('./store/useStore');
             const state = store.getState();
             

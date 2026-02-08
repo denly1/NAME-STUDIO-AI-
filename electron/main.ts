@@ -4,9 +4,13 @@ import { fileURLToPath } from 'url';
 import * as fs from 'fs/promises';
 import * as http from 'http';
 import * as https from 'https';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load environment variables from .env file
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -331,54 +335,80 @@ function registerIPCHandlers() {
     }
   });
 
-  // AI API handler - bypass CORS by making requests from Node.js
-  ipcMain.handle('ai:chat', async (_event, messages: any[], model: string, temperature: number, maxTokens: number) => {
+  // AI API handler - Timeweb Cloud AI (DeepSeek V3.2) only
+  ipcMain.handle('ai:chat', async (event, params) => {
     return new Promise((resolve, reject) => {
+      const agentAccessId = params.agentAccessId || '17860839-deaa-48e6-a827-741ad4ce7e6e';
+      
       const data = JSON.stringify({
-        model,
-        messages,
-        temperature,
-        max_tokens: maxTokens,
+        model: params.model || 'deepseek-v3.2',
+        messages: params.messages,
+        temperature: params.temperature || 0.7,
+        max_tokens: params.max_tokens || 8000,
+        top_p: params.top_p || 1.0,
+        presence_penalty: params.presence_penalty || 0,
+        frequency_penalty: params.frequency_penalty || 0,
         stream: false
       });
 
-      const options = {
-        hostname: 'api.artemox.com',
-        port: 443,
-        path: '/v1/chat/completions',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer sk-SDaGmRLAuD9ZleyqqgPawQ',
-          'Content-Length': Buffer.byteLength(data)
-        }
+      const hostname = 'agent.timeweb.cloud';
+      const path = `/api/v1/cloud-ai/agents/${agentAccessId}/v1/chat/completions`;
+      
+      // Authorization token
+      const authToken = params.authToken || process.env.TIMEWEB_AUTH_TOKEN || '';
+      
+      console.log(`[Timeweb DeepSeek] Auth Token Available:`, authToken ? `Yes (${authToken.substring(0, 20)}...)` : 'No');
+      console.log(`[Timeweb DeepSeek] Agent Access ID:`, agentAccessId);
+      
+      const headers = {
+        'Content-Type': 'application/json',
+        'authorization': `Bearer ${authToken}`,
+        'Content-Length': Buffer.byteLength(data)
       };
+
+      const options = {
+        hostname,
+        port: 443,
+        path,
+        method: 'POST',
+        headers
+      };
+
+      console.log(`[Timeweb DeepSeek] API Request:`, { 
+        model: params.model,
+        maxTokens: params.max_tokens,
+        temperature: params.temperature,
+        endpoint: `https://${hostname}${path}`,
+        messagesCount: params.messages?.length || 0
+      });
 
       const req = https.request(options, (res) => {
         let responseData = '';
 
-        console.log('AI API Response Status:', res.statusCode);
+        console.log(`[Timeweb DeepSeek] Response Status:`, res.statusCode);
 
         res.on('data', (chunk) => {
           responseData += chunk;
         });
 
         res.on('end', () => {
-          console.log('AI API Response Data:', responseData);
+          console.log(`[Timeweb DeepSeek] Response Data:`, responseData.substring(0, 200));
           
           // Check HTTP status code before parsing
           if (res.statusCode && res.statusCode >= 400) {
-            console.error(`AI API HTTP Error ${res.statusCode}:`, responseData);
+            console.error(`[Timeweb DeepSeek] HTTP Error ${res.statusCode}:`, responseData);
             
             // User-friendly error messages
             if (res.statusCode === 502) {
-              reject(new Error('🔧 Сервер artemox.com временно недоступен (502). Попробуйте через минуту.'));
+              reject(new Error(`🔧 Сервер Timeweb временно недоступен (502). Попробуйте через минуту.`));
             } else if (res.statusCode === 503) {
               reject(new Error('⚠️ Сервис перегружен (503). Попробуйте позже.'));
             } else if (res.statusCode === 429) {
-              reject(new Error('⚠️ Превышен лимит запросов (429). Проверьте баланс на https://artemox.com/ui'));
-            } else if (res.statusCode === 401) {
-              reject(new Error('🔑 Неверный API ключ (401). Проверьте настройки.'));
+              reject(new Error('⚠️ Превышен лимит запросов (429). Проверьте баланс.'));
+            } else if (res.statusCode === 401 || res.statusCode === 403) {
+              reject(new Error('🔑 Ошибка авторизации. Проверьте Agent Access ID.'));
+            } else if (res.statusCode === 404) {
+              reject(new Error('❌ Агент не найден (404). Проверьте Agent Access ID: 17860839-deaa-48e6-a827-741ad4ce7e6e'));
             } else {
               reject(new Error(`❌ HTTP ошибка ${res.statusCode}: ${responseData}`));
             }
@@ -387,10 +417,10 @@ function registerIPCHandlers() {
           
           try {
             const parsed = JSON.parse(responseData);
-            console.log('AI API Parsed Response:', parsed);
+            console.log(`[Timeweb DeepSeek] Parsed Response:`, parsed);
             resolve(parsed);
           } catch (error) {
-            console.error('Failed to parse AI API response:', error);
+            console.error('Failed to parse Timeweb API response:', error);
             reject(new Error(`Failed to parse response: ${error}`));
           }
         });

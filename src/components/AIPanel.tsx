@@ -8,6 +8,10 @@ import { chatHistoryService, ChatSession } from '../services/chatHistoryService'
 import { agentHarness, AgentTask, AgentStep, AgentPlan } from '../services/agentHarness';
 import { FileDiff } from '../services/agentTools';
 import { AIAgentPanel } from './AIAgentPanel';
+import { AgentMessageView } from './AgentMessageView';
+import { AgentActivityPanel } from './AgentActivityPanel';
+import { agentService } from '../services/agentService';
+import { AgentMessage as CursorAgentMessage, AgentActivity, AgentDiff } from '../types/agent';
 
 interface CodeChange {
   file: string;
@@ -44,7 +48,7 @@ export default function AIPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   
   // AI Agent state - Cursor AI-like functionality
-  const [viewMode, setViewMode] = useState<'chat' | 'files'>('chat');
+  const [viewMode, setViewMode] = useState<'chat' | 'files' | 'activity'>('chat');
   const [fileChanges, setFileChanges] = useState<Array<{
     path: string;
     action: 'edit' | 'create' | 'delete';
@@ -54,6 +58,12 @@ export default function AIPanel() {
     applied: boolean;
   }>>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  
+  // Cursor AI-like agent state
+  const [agentMessages, setAgentMessages] = useState<CursorAgentMessage[]>([]);
+  const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
+  const [currentDiff, setCurrentDiff] = useState<AgentDiff | null>(null);
+  const [showActivityPanel, setShowActivityPanel] = useState(true);
 
   // Helper to refocus input after button clicks
   const refocusInput = () => {
@@ -61,6 +71,23 @@ export default function AIPanel() {
       inputRef.current?.focus();
     }, 100);
   };
+
+  // Subscribe to agent service events
+  useEffect(() => {
+    // Subscribe to agent messages
+    agentService.onMessage((message) => {
+      setAgentMessages(prev => [...prev, message]);
+    });
+
+    // Subscribe to agent activities
+    agentService.onActivity((activity) => {
+      setAgentActivities(prev => [...prev, activity]);
+    });
+
+    return () => {
+      // Cleanup subscriptions if needed
+    };
+  }, []);
 
   // Load chat history for current project
   useEffect(() => {
@@ -133,43 +160,88 @@ export default function AIPanel() {
 
   // AI Agent handlers
   const handleApplyFileChange = async (index: number) => {
-    const change = fileChanges[index];
-    if (!change || !workspaceRoot) return;
+    if (!currentDiff || !workspaceRoot) return;
+    
+    const change = currentDiff.files[index];
+    if (!change) return;
 
     try {
-      const fullPath = `${workspaceRoot}/${change.path}`;
+      await agentService.applyFileChange(change, workspaceRoot);
       
-      if (change.action === 'delete') {
-        await window.electronAPI.fs.deleteFile(fullPath);
-      } else if (change.action === 'create' || change.action === 'edit') {
-        if (change.newContent) {
-          await window.electronAPI.fs.writeFile(fullPath, change.newContent);
-          
-          // Update in editor if file is open
-          const openFileItem = openFiles.find(f => f.path === fullPath);
-          if (openFileItem) {
-            updateFileContent(fullPath, change.newContent);
-          }
-        }
+      // Update in editor if file is open
+      const fullPath = `${workspaceRoot}/${change.path}`;
+      const openFileItem = openFiles.find(f => f.path === fullPath);
+      if (openFileItem && change.newContent) {
+        updateFileContent(fullPath, change.newContent);
+        
+        // Force editor refresh by re-reading the file
+        const updatedContent = await window.electronAPI.fs.readFile(fullPath);
+        updateFileContent(fullPath, updatedContent);
       }
       
-      // Mark as applied
+      // Mark as applied in local state
       setFileChanges(prev => prev.map((c, i) => 
         i === index ? { ...c, applied: true } : c
       ));
       
-      // Add success message
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `✅ Изменение применено: ${change.action} ${change.path}`
-      }]);
     } catch (error) {
       console.error('Failed to apply change:', error);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `❌ Ошибка при применении изменения: ${error}`
-      }]);
+      const errorMsg: CursorAgentMessage = {
+        id: Date.now().toString(),
+        type: 'error',
+        content: `Failed to apply change: ${error}`,
+        timestamp: new Date(),
+        status: 'failed'
+      };
+      setAgentMessages(prev => [...prev, errorMsg]);
     }
+  };
+
+  const handleApplyAllChanges = async () => {
+    if (!currentDiff || !workspaceRoot) return;
+
+    try {
+      await agentService.applyAllChanges(currentDiff, workspaceRoot);
+      
+      // Update all files in editor
+      for (const change of currentDiff.files) {
+        const fullPath = `${workspaceRoot}/${change.path}`;
+        const openFileItem = openFiles.find(f => f.path === fullPath);
+        if (openFileItem && change.newContent) {
+          updateFileContent(fullPath, change.newContent);
+          
+          // Force editor refresh by re-reading the file
+          const updatedContent = await window.electronAPI.fs.readFile(fullPath);
+          updateFileContent(fullPath, updatedContent);
+        }
+      }
+      
+      // Mark all as applied
+      setFileChanges(prev => prev.map(c => ({ ...c, applied: true })));
+      
+    } catch (error) {
+      console.error('Failed to apply all changes:', error);
+    }
+  };
+
+  const handleUndoChanges = async () => {
+    try {
+      const success = await agentService.undoLastChanges();
+      if (success) {
+        // Reload files in editor
+        for (const file of openFiles) {
+          const content = await window.electronAPI.fs.readFile(file.path);
+          updateFileContent(file.path, content);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to undo changes:', error);
+    }
+  };
+
+  const handleExplainChanges = async () => {
+    if (!currentDiff) return;
+    await agentService.explainChanges(currentDiff);
   };
 
   const handleRejectFileChange = (index: number) => {
@@ -244,21 +316,25 @@ export default function AIPanel() {
   };
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || !workspaceRoot) return;
     
     const userMessage = input;
-    setMessages([...messages, { role: 'user', content: userMessage }]);
     setInput('');
     setIsLoading(true);
     
-    // Add empty assistant message for streaming
-    const assistantMessageIndex = messages.length + 1;
-    setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+    // Add user message to agent messages
+    const userAgentMessage: CursorAgentMessage = {
+      id: Date.now().toString(),
+      type: 'text',
+      content: userMessage,
+      timestamp: new Date()
+    };
+    setAgentMessages(prev => [...prev, userAgentMessage]);
     
     try {
       aiService.setMode(mode);
       
-      // Check if request involves file modifications (Cursor AI mode)
+      // Check if request involves file modifications (Cursor AI Agent mode)
       const isFileModificationRequest = 
         userMessage.toLowerCase().includes('изменить') ||
         userMessage.toLowerCase().includes('создать') ||
@@ -269,48 +345,36 @@ export default function AIPanel() {
         userMessage.toLowerCase().includes('файл') ||
         mode === 'code';
 
-      if (isFileModificationRequest && workspaceRoot) {
-        // AI Agent mode - analyze and modify files
+      if (isFileModificationRequest) {
+        // Full Cursor AI-like agent lifecycle
         setIsAnalyzing(true);
-        setViewMode('files');
+        // Don't switch view mode - keep user in chat
         
-        // Scan project files
-        const projectFiles = await aiService.scanProjectFiles(workspaceRoot);
-        
-        // Get relevant files (currently open + scanned)
-        const relevantFiles = [
-          ...openFiles.map(f => f.path.replace(`${workspaceRoot}/`, '')),
-          ...projectFiles.slice(0, 10) // Limit to 10 files for context
-        ];
-        
-        setMessages(prev => {
-          const newMessages = [...prev];
-          newMessages[assistantMessageIndex] = {
-            role: 'assistant',
-            content: `🔍 Анализирую проект и готовлю изменения...\n\nНайдено файлов: ${relevantFiles.length}`
-          };
-          return newMessages;
-        });
-        
-        // Analyze and generate file changes
-        const result = await aiService.analyzeAndModifyFiles(
+        // Execute full agent request lifecycle
+        const lifecycle = await agentService.executeRequest(
           userMessage,
           workspaceRoot,
-          relevantFiles
+          {
+            openFiles: openFiles.map(f => f.path),
+            currentFile: currentFile || undefined
+          }
         );
         
-        // Set file changes for AI Agent Panel
-        setFileChanges(result.changes.map(c => ({ ...c, applied: false })));
-        
-        // Update message with reasoning
-        setMessages(prev => {
-          const newMessages = [...prev];
-          newMessages[assistantMessageIndex] = {
-            role: 'assistant',
-            content: `✅ Анализ завершен!\n\n**Обоснование:**\n${result.reasoning}\n\n**Предложено изменений:** ${result.changes.length}\n\nПерейдите на вкладку "Files" чтобы просмотреть и применить изменения.`
-          };
-          return newMessages;
-        });
+        // Store the diff for later application
+        if (lifecycle.diff) {
+          setCurrentDiff(lifecycle.diff);
+          // Don't switch to files view - keep user in chat
+          
+          // Convert to fileChanges format for AIAgentPanel
+          setFileChanges(lifecycle.diff.files.map(f => ({
+            path: f.path,
+            action: f.action,
+            oldContent: f.oldContent,
+            newContent: f.newContent,
+            explanation: f.explanation,
+            applied: f.applied
+          })));
+        }
         
         setIsAnalyzing(false);
       } else {
@@ -322,26 +386,27 @@ export default function AIPanel() {
         
         const response = await aiService.chat(userMessage, context);
         
-        setMessages(prev => {
-          const newMessages = [...prev];
-          newMessages[assistantMessageIndex] = {
-            role: 'assistant',
-            content: response
-          };
-          return newMessages;
-        });
+        // Add response as agent message
+        const responseMessage: CursorAgentMessage = {
+          id: Date.now().toString(),
+          type: 'text',
+          content: response,
+          timestamp: new Date(),
+          status: 'completed'
+        };
+        setAgentMessages(prev => [...prev, responseMessage]);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to get response';
       
-      setMessages(prev => {
-        const newMessages = [...prev];
-        newMessages[assistantMessageIndex] = {
-          role: 'assistant',
-          content: `❌ ${errorMessage}`
-        };
-        return newMessages;
-      });
+      const errorAgentMessage: CursorAgentMessage = {
+        id: Date.now().toString(),
+        type: 'error',
+        content: errorMessage,
+        timestamp: new Date(),
+        status: 'failed'
+      };
+      setAgentMessages(prev => [...prev, errorAgentMessage]);
       
       setIsAnalyzing(false);
     } finally {
@@ -542,7 +607,7 @@ export default function AIPanel() {
           </button>
         </div>
         
-        {/* View Mode Tabs (Chat / Files) */}
+        {/* View Mode Tabs (Chat / Files / Activity) */}
         <div className="flex border-t border-[#3e3e3e] bg-[#1a1a2e]">
           <button
             onClick={() => setViewMode('chat')}
@@ -568,6 +633,22 @@ export default function AIPanel() {
             {fileChanges.length > 0 && (
               <span className="ml-1 px-1.5 py-0.5 bg-[#f093fb] text-white text-[10px] rounded-full font-bold">
                 {fileChanges.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setViewMode('activity')}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold transition-all ${
+              viewMode === 'activity'
+                ? 'bg-gradient-to-r from-[#667eea] to-[#764ba2] text-white border-b-2 border-[#f093fb]'
+                : 'text-[#a0aec0] hover:bg-white/5'
+            }`}
+          >
+            <Play size={14} />
+            <span>Activity</span>
+            {agentActivities.filter(a => a.status === 'running').length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-[#667eea] text-white text-[10px] rounded-full font-bold animate-pulse">
+                {agentActivities.filter(a => a.status === 'running').length}
               </span>
             )}
           </button>
@@ -622,7 +703,7 @@ export default function AIPanel() {
         </div>
       </div>
 
-      {/* Content Area - Chat or Files */}
+      {/* Content Area - Chat / Files / Activity */}
       {viewMode === 'files' ? (
         <div className="flex-1 overflow-hidden">
           <AIAgentPanel
@@ -633,141 +714,62 @@ export default function AIPanel() {
             isProcessing={isAnalyzing}
           />
         </div>
+      ) : viewMode === 'activity' ? (
+        <div className="flex-1 overflow-y-auto p-4" style={{ background: 'transparent' }}>
+          <AgentActivityPanel
+            activities={agentActivities}
+            currentActivity={isAnalyzing ? 'Analyzing project...' : undefined}
+          />
+          
+          {/* Undo Button */}
+          {agentActivities.length > 0 && (
+            <div style={{ marginTop: '16px' }}>
+              <button
+                onClick={handleUndoChanges}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  backgroundColor: '#3e3e3e',
+                  color: '#fbbf24',
+                  border: '1px solid #fbbf2440',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                <Undo size={16} />
+                Undo Last Changes
+              </button>
+            </div>
+          )}
+        </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ background: 'transparent' }}>
-          {messages.length === 0 ? (
-            <div className="text-center mt-12">
-              <div className="inline-block p-4 rounded-2xl mb-4" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', boxShadow: '0 0 40px rgba(102, 126, 234, 0.6)' }}>
-                <Sparkles size={48} className="text-white" />
+        <div className="flex-1 overflow-y-auto px-4 py-6 space-y-3" style={{ background: 'transparent' }}>
+          {agentMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-8">
+              <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(102, 126, 234, 0.1)' }}>
+                <Sparkles size={32} style={{ color: '#667eea' }} />
               </div>
-              <p className="text-2xl font-black mb-2" style={{ background: 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Welcome to NAME STUDIO AI</p>
-              <p className="text-sm text-[#a0aec0] mb-1">Your Premium AI-Powered Coding Assistant</p>
-              <p className="text-xs text-[#718096] mt-3">✨ Powered by Artemox AI - Advanced coding assistant with file modification capabilities</p>
+              <h3 className="text-lg font-semibold text-white mb-2">AI Assistant</h3>
+              <p className="text-sm text-gray-400 max-w-md">Ask me to help with your code, explain concepts, or make improvements</p>
             </div>
           ) : (
-          messages.map((msg, index) => (
-            <div key={index} className="space-y-2">
-              <div
-                className="p-3 rounded-lg max-w-[80%] shadow-lg"
-              style={msg.role === 'user' ? {
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: 'white',
-                marginLeft: 'auto',
-                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
-              } : {
-                background: 'rgba(26, 26, 46, 0.8)',
-                color: '#e2e8f0',
-                border: '1px solid #4a5568',
-                backdropFilter: 'blur(10px)'
-              }}
-            >
-              <div className="text-xs mb-1 font-semibold" style={{ color: msg.role === 'user' ? 'rgba(255,255,255,0.8)' : '#a0aec0' }}>
-                {msg.role === 'user' ? 'You' : 'AI Assistant'}
-              </div>
-              <div className="text-sm whitespace-pre-wrap" style={{ color: msg.role === 'user' ? 'white' : '#e2e8f0' }}>
-                {msg.content}
-              </div>
-
-              {/* Plan Section */}
-              {msg.plan && msg.plan.length > 0 && showPlan && (
-                <div className="mt-3 p-2 rounded bg-black/20 border border-[#4a5568]">
-                  <div className="text-xs font-semibold text-[#f093fb] mb-2 flex items-center gap-1">
-                    <ListChecks size={12} />
-                    Plan
-                  </div>
-                  <ol className="text-xs space-y-1 list-decimal list-inside text-[#a0aec0]">
-                    {msg.plan.map((step, i) => (
-                      <li key={i}>{step}</li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-
-              {/* Steps Section */}
-              {msg.steps && msg.steps.length > 0 && (
-                <div className="mt-3 p-2 rounded bg-black/20 border border-[#4a5568]">
-                  <div className="text-xs font-semibold text-[#f093fb] mb-2 flex items-center gap-1">
-                    <Play size={12} />
-                    Execution Steps
-                  </div>
-                  <div className="space-y-1">
-                    {msg.steps.map((step, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        {step.type === 'result' && <CheckCircle size={12} className="text-green-400" />}
-                        {step.type === 'tool_use' && <Play size={12} className="text-blue-400" />}
-                        {step.type === 'error' && <AlertTriangle size={12} className="text-red-400" />}
-                        {step.type === 'thinking' && <div className="w-3 h-3 rounded-full border border-[#4a5568]" />}
-                        <span className="text-[#a0aec0]">{step.description}</span>
-                        {step.tool && (
-                          <span className="text-[#718096] text-[10px]">({step.tool})</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Risks Section */}
-              {msg.risks && msg.risks.length > 0 && (
-                <div className="mt-3 p-2 rounded bg-red-900/10 border border-red-500/30">
-                  <div className="text-xs font-semibold text-red-400 mb-2 flex items-center gap-1">
-                    <AlertTriangle size={12} />
-                    Risks Detected
-                  </div>
-                  <ul className="text-xs space-y-1 list-disc list-inside text-red-300">
-                    {msg.risks.map((risk, i) => (
-                      <li key={i}>{risk}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-            
-            {/* Code Changes Section */}
-            {msg.changes && msg.changes.length > 0 && (
-              <div className="mt-4 space-y-3">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <Code size={16} className="text-[#f093fb]" />
-                    Proposed Changes ({msg.changes.length})
-                  </div>
-                  <button
-                    onClick={() => applyAllChanges(index)}
-                    className="px-4 py-1.5 text-xs rounded-lg font-semibold transition-all duration-200 hover:scale-105 flex items-center gap-2"
-                    style={{ 
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
-                      color: 'white',
-                      boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)'
-                    }}
-                  >
-                    <CheckCircle size={14} />
-                    Apply All Changes
-                  </button>
-                </div>
-                {msg.changes.map((change, changeIdx) => (
-                  <DiffViewer
-                    key={changeIdx}
-                    file={change.file}
-                    diff={change.content}
-                    applied={change.applied}
-                    onApply={() => applyChange(change, index)}
-                    onReject={() => {
-                      setMessages(prev => prev.map((m, i) => {
-                        if (i === index && m.changes) {
-                          return {
-                            ...m,
-                            changes: m.changes.filter((_, idx) => idx !== changeIdx)
-                          };
-                        }
-                        return m;
-                      }));
-                      setPendingChanges(prev => prev.filter(c => c.file !== change.file));
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          agentMessages.map((msg, index) => (
+            <AgentMessageView
+              key={`${msg.id}-${index}`}
+              message={msg}
+              onApplyChange={handleApplyFileChange}
+              onRejectChange={handleRejectFileChange}
+              onApplyAll={handleApplyAllChanges}
+              onRejectAll={() => setFileChanges([])}
+              onUndo={handleUndoChanges}
+              onExplain={handleExplainChanges}
+            />
           ))
           )}
         </div>
@@ -775,30 +777,17 @@ export default function AIPanel() {
 
       {/* Loading Indicator */}
       {isLoading && viewMode === 'chat' && (
-        <div className="p-4">
-          <div 
-            className="flex items-center gap-3 p-4 rounded-xl max-w-[80%] animate-pulse"
-            style={{
-              background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
-              border: '2px solid rgba(102, 126, 234, 0.3)',
-              boxShadow: '0 4px 20px rgba(102, 126, 234, 0.2)'
-            }}
-          >
-            <div className="relative">
-              <div className="animate-spin rounded-full h-6 w-6 border-3 border-[#667eea] border-t-transparent"></div>
-              <div className="absolute inset-0 rounded-full" style={{ boxShadow: '0 0 15px rgba(102, 126, 234, 0.5)' }}></div>
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-white mb-1">NAME STUDIO AI is analyzing...</div>
-              <div className="text-xs text-[#a0aec0]">Processing your request with advanced reasoning</div>
-            </div>
+        <div className="px-4 pb-4">
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-600 border-t-blue-500"></div>
+            <span>Thinking...</span>
           </div>
         </div>
       )}
 
       {/* Input */}
       {viewMode === 'chat' && (
-      <div className="p-4 border-t border-[#4a5568]" style={{ background: 'linear-gradient(90deg, #1a1a2e 0%, #16213e 100%)', backdropFilter: 'blur(10px)' }}>
+      <div className="p-3 border-t" style={{ borderColor: '#2d2d2d', background: '#1e1e1e' }}>
         <div className="flex gap-2">
           {/* Quick Actions Dropdown */}
           <div className="relative">
@@ -807,11 +796,10 @@ export default function AIPanel() {
                 setShowQuickActions(!showQuickActions);
                 refocusInput();
               }}
-              className="px-3 py-3 text-white rounded-xl transition-all duration-300 hover:scale-105"
-              style={{ background: 'rgba(102, 126, 234, 0.2)', border: '2px solid #667eea' }}
+              className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
               title="Quick Actions"
             >
-              <Sparkles size={16} />
+              <Sparkles size={18} />
             </button>
             
             {showQuickActions && (
@@ -963,25 +951,23 @@ export default function AIPanel() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder={`Ask NAME STUDIO AI... (${mode} mode)`}
+            placeholder="Ask AI..."
             disabled={isLoading}
-            className="flex-1 px-4 py-3 text-sm text-white placeholder-[#718096] outline-none disabled:opacity-50 rounded-xl transition-all duration-300"
-            style={{ background: 'rgba(26, 26, 46, 0.6)', border: '2px solid #4a5568', backdropFilter: 'blur(10px)' }}
-            onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
-            onBlur={(e) => e.currentTarget.style.borderColor = '#4a5568'}
+            className="flex-1 px-3 py-2 text-sm text-white placeholder-gray-500 bg-transparent outline-none disabled:opacity-50 border rounded"
+            style={{ borderColor: '#2d2d2d', background: '#252525' }}
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="px-5 py-3 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 font-semibold shadow-lg hover:scale-105 hover:shadow-xl"
-            style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+            disabled={isLoading || !input.trim()}
+            className="p-2 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: input.trim() ? '#0066ff' : '#2d2d2d' }}
           >
-            <Send size={16} />
+            <Send size={18} />
           </button>
         </div>
         <div className="flex items-center justify-between mt-3">
           <p className="text-xs text-[#718096]">
-            ⚡ Ctrl+Enter to send • Powered by DeepSeek R1
+            ⚡ Ctrl+Enter to send • Timeweb DeepSeek V3.2
           </p>
           {pendingChanges.length > 0 && (
             <div className="text-xs font-semibold text-[#f093fb]">
